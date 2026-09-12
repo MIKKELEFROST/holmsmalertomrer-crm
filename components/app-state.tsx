@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useMemo } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import type { Filters } from "@/lib/derive";
 import { STATUSES, type LeadStatus } from "@/lib/types";
 
@@ -13,9 +13,12 @@ export type DesktopView = "pipeline" | "liste" | "opfoelgning";
  *
  * Det betyder at et lead kan sendes videre som link, at tilbage-knappen
  * lukker leadet i stedet for at forlade appen, og at en filtreret liste kan
- * genbesøges. Prisen er at hvert klik er en navigation — derfor `replace`
- * på filtre (de skal ikke fylde i historikken) og `push` på det der føles
- * som et sted man kan gå tilbage fra.
+ * genbesøges.
+ *
+ * URL'en opdateres med det native history API, ikke med router.push, så et
+ * klik ikke koster en tur til serveren — se navigate() nedenfor. `replace`
+ * bruges til filtre (de skal ikke fylde i historikken) og `push` til det der
+ * føles som et sted man kan gå tilbage fra.
  */
 interface AppStateValue {
   tab: MobileTab;
@@ -52,7 +55,6 @@ const isView = (value: string | null): value is DesktopView =>
   value === "pipeline" || value === "liste" || value === "opfoelgning";
 
 export function AppStateProvider({ children }: { children: React.ReactNode }) {
-  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
@@ -92,9 +94,23 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
 
       const queryString = params.toString();
       const url = queryString ? `${pathname}?${queryString}` : pathname;
-      router[mode](url, { scroll: false });
+
+      // Native history API frem for router.push.
+      //
+      // Siden er en server component, så router.push ville hente den forfra
+      // for hvert klik — et rundtur til Irland plus fire databasekald, bare
+      // for at skifte fane eller trykke på et postnummer. Målt på det live
+      // site: 300–1100 ms pr. klik, og det er fra et datacenter. Ude i bilen
+      // på mobildata er det meget værre.
+      //
+      // Alle leads ligger allerede i browseren, og filtrering sker lokalt.
+      // Der er derfor intet serveren skal bidrage med her. pushState og
+      // replaceState er integreret i Next.js' router og synkroniserer med
+      // useSearchParams, så URL'en, tilbage-knappen og delbare links virker
+      // præcis som før — bare uden ventetiden.
+      window.history[mode === "push" ? "pushState" : "replaceState"](null, "", url);
     },
-    [pathname, router, searchParams],
+    [pathname, searchParams],
   );
 
   const value = useMemo<AppStateValue>(

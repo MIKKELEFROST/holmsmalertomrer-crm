@@ -40,6 +40,17 @@ under **Authentication → Users**. Alle med et login kan se og rette alt — de
 er ét internt system for én virksomhed, og adgangen styres ved hvem der
 overhovedet får en bruger.
 
+**Slå tilmelding fra** under Authentication → Sign In / Providers → Email.
+Publishable-nøglen ligger i browserkoden efter hensigten, så med tilmelding
+slået til kan enhver oprette sig selv og derefter læse alle kundedata —
+adgangsreglerne kræver kun "logget ind", ikke "er en af os".
+
+Glemt adgangskode går `/glemt-kode` → mail med link → `/auth/callback` →
+`/ny-kode`. Det kræver at appens domæne står under Authentication → URL
+Configuration, både som Site URL og på listen over tilladte redirects.
+Supabases indbyggede mailserver er kraftigt begrænset i antal mails; skal
+flere end et par personer bruge det, så sæt en rigtig SMTP op.
+
 ## To layouts, én app
 
 Skiftet sker på 900px. Begge layouts renderes, og CSS vælger hvilket der vises.
@@ -56,6 +67,12 @@ layout i serverens første render eller et synligt hop efter hydrering.
 Navigation og filtre ligger i URL'ens søgeparametre (`tab`, `view`, `lead`,
 `q`, `zip`, `status`), så et lead kan sendes videre som link og tilbage-knappen
 virker som forventet.
+
+URL'en opdateres med det native history API frem for `router.push`. Siden er en
+server component, så `router.push` ville hente den forfra ved hvert klik — målt
+til 300–1100 ms pr. fane- eller filterskift på det live site. Alle leads ligger
+allerede i browseren og filtreres lokalt, så der er intet serveren skal bidrage
+med. Efter ændringen er der nul serverkald ved navigation.
 
 ## Design
 
@@ -140,3 +157,12 @@ Fra design-handoffen, og stadig åbent:
    Meta-lead bliver koldt på timer, så det bør prioriteres.
 4. **Estimeret værdi vs. tilbudspris** er to felter. Viser det sig at være
    dobbeltarbejde, kan pipelinen bygge på tilbudsprisen alene.
+
+## Kendte afvejninger
+
+Hver feltændring kalder `revalidatePath("/")`, så serveren renderer siden
+forfra efter hvert autogem. Det holder historikken opdateret — statusskift
+skrives serverside — men koster et rundtur pr. gemt felt. Bliver det mærkbart
+under redigering, er næste skridt at lade klienten selv tilføje de
+historikposter den kan forudsige, og kun revalidere ved de handlinger hvor
+serveren skaber noget nyt.
