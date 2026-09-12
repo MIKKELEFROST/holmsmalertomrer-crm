@@ -110,11 +110,10 @@ Sendes `meta_id` med, afvises dubletter på det. Endpointet er undtaget fra
 login-tjekket, fordi hjemmesideformularen ikke har en brugersession — det
 godkender med den delte hemmelighed i stedet.
 
-Til Meta findes der to veje: sæt et relay op (Zapier, Make eller en lille
-funktion) der kalder endpointet, eller peg Metas webhook direkte på det.
-Webhook-verifikationen (`GET` med `hub.challenge`) er implementeret; selve
-leadgen-hentningen fra Graph API kræver en page access token og er ikke bygget
-endnu.
+Selve automatiseringen — Meta Lead Ads og WordPress-formularen gennem Make —
+er sat på pause. `docs/lead-intake.md` har hele opsætningen klar: Facebook-side
+og formular-ID'er, modulopsætningen til Make, feltmapningen og hvordan
+WordPress-formularen kobles på.
 
 ## Kommandoer
 
