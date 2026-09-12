@@ -922,3 +922,44 @@ export function fillTemplate(text: string, lead: Lead): string {
     .replace(/\{navn\}/g, firstName(lead.name))
     .replace(/\{opgave\}/g, taskInSentence(lead.description));
 }
+
+/* -------------------------------------------------------------------------
+   Slet lead
+------------------------------------------------------------------------- */
+
+/**
+ * Ligger nederst, adskilt fra resten og uden farve der trækker øjet til sig.
+ * Sletning er sjælden og uigenkaldelig — den skal kunne findes, ikke rammes
+ * ved et uheld på vej ned gennem siden.
+ */
+export function DeleteSection({ onRequestDelete }: { onRequestDelete: () => void }) {
+  return (
+    <section
+      style={{
+        marginTop: 8,
+        paddingTop: 18,
+        borderTop: "1px solid var(--color-line)",
+      }}
+    >
+      <button
+        type="button"
+        onClick={onRequestDelete}
+        style={{
+          minHeight: 44,
+          padding: "0 14px",
+          borderRadius: "var(--radius-input)",
+          border: "1px solid var(--color-line-input)",
+          background: "var(--color-card)",
+          color: "var(--color-danger)",
+          fontSize: 14,
+          fontWeight: 600,
+        }}
+      >
+        Slet lead
+      </button>
+      <p style={{ margin: "8px 0 0", fontSize: 12.5, color: "var(--color-text-4)" }}>
+        Fjerner leadet og alt der hører til. Kan ikke fortrydes.
+      </p>
+    </section>
+  );
+}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
@@ -16,8 +17,15 @@ export function LoginForm() {
   const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // /auth/callback sender hertil med ?fejl=link når et nulstillingslink er
+  // udløbet eller allerede brugt.
+  const [error, setError] = useState<string | null>(
+    searchParams.get("fejl") === "link"
+      ? "Linket er udløbet eller allerede brugt. Bed om et nyt nedenfor."
+      : null,
+  );
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -133,6 +141,20 @@ export function LoginForm() {
           {error}
         </p>
       ) : null}
+
+      <Link
+        href="/glemt-kode"
+        style={{
+          fontSize: 13.5,
+          color: "var(--color-link)",
+          minHeight: 44,
+          display: "flex",
+          alignItems: "center",
+          marginTop: -6,
+        }}
+      >
+        Glemt adgangskode?
+      </Link>
 
       <button
         type="submit"

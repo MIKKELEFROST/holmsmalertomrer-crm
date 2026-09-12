@@ -379,3 +379,92 @@ export function NewLeadSheet({ onClose }: { onClose: () => void }) {
     </Sheet>
   );
 }
+
+/* -------------------------------------------------------------------------
+   Bekræft sletning
+------------------------------------------------------------------------- */
+
+/**
+ * Sletning kan ikke fortrydes, så arket fortæller præcis hvad der forsvinder
+ * frem for at spørge "er du sikker?". Det er forskellen på at kunne tage en
+ * beslutning og bare at klikke videre.
+ */
+export function DeleteLeadSheet({
+  lead,
+  onClose,
+  onDeleted,
+}: {
+  lead: Lead;
+  onClose: () => void;
+  onDeleted: () => void;
+}) {
+  const { deleteLead } = useLeads();
+  const [busy, setBusy] = useState(false);
+
+  const noter = lead.notes?.length ?? 0;
+  const billeder = lead.photos?.length ?? 0;
+  const historik = lead.activity?.length ?? 0;
+
+  const mister = [
+    `${historik} ${historik === 1 ? "post i historikken" : "poster i historikken"}`,
+    noter > 0 ? `${noter} ${noter === 1 ? "note" : "noter"}` : null,
+    billeder > 0 ? `${billeder} ${billeder === 1 ? "billede" : "billeder"}` : null,
+  ].filter(Boolean) as string[];
+
+  const submit = async () => {
+    setBusy(true);
+    const ok = await deleteLead(lead.id);
+    setBusy(false);
+    if (ok) onDeleted();
+  };
+
+  return (
+    <Sheet title="Slet lead" onClose={onClose}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14, paddingBottom: 8 }}>
+        <p
+          style={{
+            margin: 0,
+            fontSize: 15,
+            lineHeight: 1.55,
+            color: "var(--color-navy-ink)",
+            textWrap: "pretty",
+          }}
+        >
+          <strong>{lead.name}</strong> slettes helt — også {mister.join(", ")}.
+          Det kan ikke fortrydes.
+        </p>
+
+        <p style={{ margin: 0, fontSize: 13.5, color: "var(--color-text-3)" }}>
+          Skal leadet bare ud af vejen, er <strong>Tabt</strong> eller{" "}
+          <strong>Afsluttet</strong> bedre — så bliver historikken stående.
+          Slet kun når oplysningerne skal væk for alvor, for eksempel hvis
+          kunden beder om det.
+        </p>
+
+        <Button
+          tone="yellow"
+          full
+          height={52}
+          disabled={busy}
+          onClick={onClose}
+          style={{ marginTop: 4 }}
+        >
+          Behold leadet
+        </Button>
+
+        <Button
+          full
+          height={52}
+          disabled={busy}
+          onClick={() => void submit()}
+          style={{
+            background: "var(--color-danger)",
+            color: "#fff",
+          }}
+        >
+          {busy ? "Sletter…" : `Slet ${lead.name.split(" ")[0]} permanent`}
+        </Button>
+      </div>
+    </Sheet>
+  );
+}

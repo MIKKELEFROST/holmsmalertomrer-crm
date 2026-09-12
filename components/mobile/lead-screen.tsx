@@ -8,10 +8,11 @@ import {
   ContactSection,
   HistorySection,
   NotesSection,
+  DeleteSection,
   OfferSection,
   PhotosSection,
 } from "../lead-sections";
-import { SmsSheet, StatusSheet, TemplateSheet } from "../sheets";
+import { DeleteLeadSheet, SmsSheet, StatusSheet, TemplateSheet } from "../sheets";
 import { StatusDot } from "../ui";
 import { nextStatus } from "@/lib/derive";
 import { fullDateTime, joinParts, kr, taskSummary } from "@/lib/format";
@@ -35,7 +36,7 @@ export function MobileLeadScreen({ lead }: { lead: Lead }) {
   const backLabel = { overblik: "Overblik", opfoelgning: "Opfølgning", alle: "Alle" }[tab];
 
   const [editing, setEditing] = useState(false);
-  const [sheet, setSheet] = useState<"sms" | "tpl" | "status" | null>(null);
+  const [sheet, setSheet] = useState<"sms" | "tpl" | "status" | "slet" | null>(null);
 
   const next = nextStatus(lead.status);
 
@@ -151,6 +152,7 @@ export function MobileLeadScreen({ lead }: { lead: Lead }) {
         <OfferSection lead={lead} />
         <HistorySection lead={lead} />
         <NotesSection lead={lead} />
+        <DeleteSection onRequestDelete={() => setSheet("slet")} />
       </main>
 
       {/* Handlingsbaren ligger oven på bundnavigationen, ikke over indholdet. */}
@@ -215,6 +217,13 @@ export function MobileLeadScreen({ lead }: { lead: Lead }) {
       ) : null}
       {sheet === "status" ? (
         <StatusSheet lead={lead} onClose={() => setSheet(null)} />
+      ) : null}
+      {sheet === "slet" ? (
+        <DeleteLeadSheet
+          lead={lead}
+          onClose={() => setSheet(null)}
+          onDeleted={closeLead}
+        />
       ) : null}
     </>
   );

@@ -334,3 +334,41 @@ export async function deletePhoto(
   revalidatePath("/");
   return ok;
 }
+
+/**
+ * Sletter et lead med alt hvad der hænger på det.
+ *
+ * Noter, historik og billedrækker forsvinder af sig selv — de har
+ * `on delete cascade` i skemaet. Selve billedfilerne i Storage gør ikke, så
+ * de hentes og fjernes først; ellers ville de ligge tilbage som forældreløse
+ * kopier af kundens hus, uden nogen vej til at finde dem igen.
+ *
+ * Det er en rigtig sletning, ikke et flag. En kunde der beder om at få sine
+ * oplysninger fjernet, skal have dem fjernet.
+ */
+export async function deleteLead(leadId: string): Promise<ActionResult> {
+  const supabase = await createClient();
+
+  const { data: photos } = await supabase
+    .from("lead_photos")
+    .select("path")
+    .eq("lead_id", leadId);
+
+  const paths = (photos ?? []).map((p) => p.path as string);
+  if (paths.length > 0) {
+    // Fejler filsletningen, fortsætter vi alligevel. Et lead der bliver
+    // hængende i CRM'et er værre end en glemt fil i en privat bucket.
+    const { error: storageError } = await supabase.storage
+      .from("lead-photos")
+      .remove(paths);
+    if (storageError) {
+      console.error("Kunne ikke slette billedfiler:", storageError.message);
+    }
+  }
+
+  const { error } = await supabase.from("leads").delete().eq("id", leadId);
+  if (error) return fail(error.message);
+
+  revalidatePath("/");
+  return ok;
+}

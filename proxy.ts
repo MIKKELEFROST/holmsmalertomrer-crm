@@ -11,7 +11,7 @@ import { supabaseKey, supabaseUrl } from "@/lib/env";
  */
 
 /** Ruter der må ses uden login. */
-const PUBLIC_PATHS = ["/login", "/auth"];
+const PUBLIC_PATHS = ["/login", "/auth", "/glemt-kode"];
 
 export async function proxy(request: NextRequest) {
   // Middleware kører før alt andet. Kaster den, får man en tom "Internal

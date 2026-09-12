@@ -14,6 +14,7 @@ import { createClient } from "@/lib/supabase/client";
 import {
   addNote as addNoteAction,
   createLead as createLeadAction,
+  deleteLead as deleteLeadAction,
   deleteNote as deleteNoteAction,
   deletePhoto as deletePhotoAction,
   logActivity as logActivityAction,
@@ -44,6 +45,7 @@ interface LeadsContextValue {
   addNote: (leadId: string, text: string) => Promise<void>;
   deleteNote: (leadId: string, noteId: string) => Promise<void>;
   createLead: (input: NewLeadInput) => Promise<string | null>;
+  deleteLead: (leadId: string) => Promise<boolean>;
   logActivity: (leadId: string, what: string) => Promise<void>;
   registerPhoto: (
     leadId: string,
@@ -215,6 +217,24 @@ export function LeadsProvider({
     [run, toast],
   );
 
+  const deleteLead = useCallback(
+    async (leadId: string) => {
+      const lead = leads.find((l) => l.id === leadId);
+      const result = await run(() => deleteLeadAction(leadId));
+
+      if (!result.ok) {
+        toast(result.error ?? "Kunne ikke slette leadet", "error");
+        return false;
+      }
+
+      setLeads((current) => current.filter((l) => l.id !== leadId));
+      toast(lead ? `${lead.name} er slettet` : "Leadet er slettet");
+      startTransition(() => {});
+      return true;
+    },
+    [leads, run, toast],
+  );
+
   const logActivity = useCallback(
     async (leadId: string, what: string) => {
       await run(() => logActivityAction(leadId, what));
@@ -286,6 +306,7 @@ export function LeadsProvider({
       addNote,
       deleteNote,
       createLead,
+      deleteLead,
       logActivity,
       registerPhoto,
       deletePhoto,
@@ -302,6 +323,7 @@ export function LeadsProvider({
       addNote,
       deleteNote,
       createLead,
+      deleteLead,
       logActivity,
       registerPhoto,
       deletePhoto,
