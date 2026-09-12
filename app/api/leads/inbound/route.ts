@@ -4,6 +4,7 @@ import { timingSafeEqual } from "node:crypto";
 import { cityForZip } from "@/lib/postal-codes";
 import { cleanPhone, cleanZip, platformName } from "@/lib/meta-import";
 import { parseAddress } from "@/lib/format";
+import { supabaseUrl } from "@/lib/env";
 
 /**
  * Modtager leads udefra: hjemmesidens kontaktformular og et relay af Meta
@@ -92,11 +93,9 @@ export async function POST(request: NextRequest) {
 
   // Service role omgår RLS. Det er nødvendigt her, fordi kaldet kommer fra
   // et system uden brugersession, og nøglen forlader aldrig serveren.
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    serviceKey,
-    { auth: { persistSession: false } },
-  );
+  const supabase = createClient(supabaseUrl(), serviceKey, {
+    auth: { persistSession: false },
+  });
 
   const metaId = payload.meta_id ?? payload.id ?? null;
 

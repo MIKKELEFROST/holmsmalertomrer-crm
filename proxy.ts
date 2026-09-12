@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { supabaseKey, supabaseUrl } from "@/lib/env";
 
 /**
  * Fornyer Supabase-sessionen på hver navigation og sender folk uden login
@@ -15,26 +16,22 @@ const PUBLIC_PATHS = ["/login", "/auth"];
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet) {
-          for (const { name, value } of cookiesToSet) {
-            request.cookies.set(name, value);
-          }
-          response = NextResponse.next({ request });
-          for (const { name, value, options } of cookiesToSet) {
-            response.cookies.set(name, value, options);
-          }
-        },
+  const supabase = createServerClient(supabaseUrl(), supabaseKey(), {
+    cookies: {
+      getAll() {
+        return request.cookies.getAll();
+      },
+      setAll(cookiesToSet) {
+        for (const { name, value } of cookiesToSet) {
+          request.cookies.set(name, value);
+        }
+        response = NextResponse.next({ request });
+        for (const { name, value, options } of cookiesToSet) {
+          response.cookies.set(name, value, options);
+        }
       },
     },
-  );
+  });
 
   // getClaims() validerer token'et. Kald altid noget her — det er kaldet der
   // fornyer sessionen, og uden det bliver folk logget ud af sig selv.
@@ -51,7 +48,7 @@ export async function proxy(request: NextRequest) {
     loginUrl.search = "";
     // Husk hvor de var på vej hen, så de lander rigtigt efter login.
     if (pathname !== "/") {
-      loginUrl.searchParams.set("next", pathname + request.nextUrl.search);
+    loginUrl.searchParams.set("next", pathname + request.nextUrl.search);
     }
     return NextResponse.redirect(loginUrl);
   }
