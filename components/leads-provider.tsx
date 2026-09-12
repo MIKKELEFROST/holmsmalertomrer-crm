@@ -8,7 +8,6 @@ import {
   useMemo,
   useRef,
   useState,
-  useTransition,
 } from "react";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -24,7 +23,7 @@ import {
   type LeadPatch,
   type NewLeadInput,
 } from "@/app/actions";
-import type { Lead } from "@/lib/types";
+import type { Lead, LeadActivity } from "@/lib/types";
 
 interface Toast {
   id: number;
@@ -40,7 +39,6 @@ interface LeadsContextValue {
   currentUser: string;
   /** Sat mens en skrivning er undervejs — driver "Gemt kl. …". */
   savedAt: Record<string, string>;
-  pending: boolean;
   updateLead: (leadId: string, patch: LeadPatch) => Promise<void>;
   addNote: (leadId: string, text: string) => Promise<void>;
   deleteNote: (leadId: string, noteId: string) => Promise<void>;
@@ -89,7 +87,6 @@ export function LeadsProvider({
   const [now, setNow] = useState(() => new Date(serverNow));
   const [savedAt, setSavedAt] = useState<Record<string, string>>({});
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const [pending, startTransition] = useTransition();
   const toastId = useRef(0);
 
   // Serverens data vinder når siden revalideres, men kun hvis vi ikke selv
@@ -123,6 +120,27 @@ export function LeadsProvider({
   }, []);
 
   /**
+   * Lægger historikposter serveren lige har skabt ind i det lokale lead.
+   *
+   * Serveren returnerer de faktiske rækker, så det er ikke et gæt om hvad
+   * den skrev — det er id'erne og tidsstemplerne fra databasen. Nyeste
+   * først, samme rækkefølge som når siden hentes forfra.
+   */
+  const mergeActivity = useCallback(
+    (leadId: string, rows: LeadActivity[] | undefined) => {
+      if (!rows?.length) return;
+      setLeads((current) =>
+        current.map((lead) =>
+          lead.id === leadId
+            ? { ...lead, activity: [...rows, ...(lead.activity ?? [])] }
+            : lead,
+        ),
+      );
+    },
+    [],
+  );
+
+  /**
    * Kalder en server action og oversætter et netværkssvigt til det samme
    * svar som serveren selv ville have givet.
    *
@@ -135,12 +153,16 @@ export function LeadsProvider({
   const run = useCallback(
     async <T extends ActionResult>(
       action: () => Promise<T>,
-    ): Promise<T | ActionResult> => {
+    ): Promise<Partial<T> & ActionResult> => {
       inFlight.current++;
       try {
         return await action();
       } catch {
-        return { ok: false, error: "Ingen forbindelse — prøv igen" };
+        // Ingen af de rækker handlingen ellers ville returnere findes her —
+        // der nåede aldrig at komme et svar. Castet siger netop det: kun
+        // ok og error er sat.
+        return { ok: false, error: "Ingen forbindelse — prøv igen" } as Partial<T> &
+          ActionResult;
       } finally {
         inFlight.current--;
       }
@@ -163,40 +185,52 @@ export function LeadsProvider({
         return;
       }
 
+      // Historikposterne kommer med i svaret, så de kan lægges ind uden at
+      // hente siden forfra.
+      mergeActivity(leadId, result.activity);
+
       setSavedAt((current) => ({
         ...current,
         [leadId]: new Date().toISOString(),
       }));
-      startTransition(() => {});
     },
-    [leads, patchLocal, run, toast],
+    [leads, mergeActivity, patchLocal, run, toast],
   );
 
   const addNote = useCallback(
     async (leadId: string, text: string) => {
       const result = await run(() => addNoteAction(leadId, text));
 
-      if (!result.ok) {
+      if (!result.ok || !result.note) {
         toast(result.error ?? "Kunne ikke gemme noten", "error");
         return;
       }
+
+      const note = result.note;
+      setLeads((current) =>
+        current.map((lead) =>
+          lead.id === leadId
+            ? { ...lead, notes: [note, ...(lead.notes ?? [])] }
+            : lead,
+        ),
+      );
       toast("Note gemt");
-      startTransition(() => {});
     },
     [run, toast],
   );
 
   const deleteNote = useCallback(
     async (leadId: string, noteId: string) => {
-      patchLocal(leadId, {
-        notes: leads
-          .find((l) => l.id === leadId)
-          ?.notes?.filter((n) => n.id !== noteId),
-      });
+      const before = leads.find((l) => l.id === leadId)?.notes;
+      patchLocal(leadId, { notes: before?.filter((n) => n.id !== noteId) });
+
       const result = await run(() => deleteNoteAction(noteId));
 
-      if (!result.ok) toast(result.error ?? "Kunne ikke slette noten", "error");
-      startTransition(() => {});
+      if (!result.ok) {
+        // Sæt noten tilbage — ellers ser den slettet ud uden at være det.
+        patchLocal(leadId, { notes: before });
+        toast(result.error ?? "Kunne ikke slette noten", "error");
+      }
     },
     [leads, patchLocal, run, toast],
   );
@@ -205,14 +239,20 @@ export function LeadsProvider({
     async (input: NewLeadInput) => {
       const result = await run(() => createLeadAction(input));
 
-      const leadId = "leadId" in result ? result.leadId : undefined;
-      if (!result.ok || !leadId) {
+      if (!result.ok || !result.lead) {
         toast(result.error ?? "Kunne ikke oprette leadet", "error");
         return null;
       }
+
+      // Hele rækken kommer med tilbage, så leadet kan lægges i listen med det
+      // samme. Realtime leverer den samme indsættelse et øjeblik efter og
+      // springer den over, fordi id'et allerede er der.
+      const lead = result.lead;
+      setLeads((current) =>
+        current.some((l) => l.id === lead.id) ? current : [lead, ...current],
+      );
       toast("Lead oprettet");
-      startTransition(() => {});
-      return leadId;
+      return lead.id;
     },
     [run, toast],
   );
@@ -229,7 +269,6 @@ export function LeadsProvider({
 
       setLeads((current) => current.filter((l) => l.id !== leadId));
       toast(lead ? `${lead.name} er slettet` : "Leadet er slettet");
-      startTransition(() => {});
       return true;
     },
     [leads, run, toast],
@@ -237,33 +276,50 @@ export function LeadsProvider({
 
   const logActivity = useCallback(
     async (leadId: string, what: string) => {
-      await run(() => logActivityAction(leadId, what));
-      startTransition(() => {});
+      const result = await run(() => logActivityAction(leadId, what));
+      mergeActivity(leadId, result.activity ? [result.activity] : undefined);
     },
-    [run],
+    [mergeActivity, run],
   );
 
   const registerPhoto = useCallback(
     async (leadId: string, path: string, originalName: string | null) => {
-      const result = await run(() => registerPhotoAction(leadId, path, originalName));
+      const result = await run(() =>
+        registerPhotoAction(leadId, path, originalName),
+      );
 
-      if (!result.ok) toast(result.error ?? "Kunne ikke gemme billedet", "error");
-      startTransition(() => {});
+      if (!result.ok || !result.photo) {
+        toast(result.error ?? "Kunne ikke gemme billedet", "error");
+        return;
+      }
+
+      // Billedet kommer tilbage med en signeret URL, så det kan vises med det
+      // samme — bucket'en er privat, og uden URL ville feltet stå tomt indtil
+      // næste gang siden blev hentet.
+      const photo = result.photo;
+      setLeads((current) =>
+        current.map((lead) =>
+          lead.id === leadId
+            ? { ...lead, photos: [...(lead.photos ?? []), photo] }
+            : lead,
+        ),
+      );
+      mergeActivity(leadId, result.activity ? [result.activity] : undefined);
     },
-    [run, toast],
+    [mergeActivity, run, toast],
   );
 
   const deletePhoto = useCallback(
     async (leadId: string, photoId: string, path: string) => {
-      patchLocal(leadId, {
-        photos: leads
-          .find((l) => l.id === leadId)
-          ?.photos?.filter((p) => p.id !== photoId),
-      });
+      const before = leads.find((l) => l.id === leadId)?.photos;
+      patchLocal(leadId, { photos: before?.filter((p) => p.id !== photoId) });
+
       const result = await run(() => deletePhotoAction(photoId, path));
 
-      if (!result.ok) toast(result.error ?? "Kunne ikke slette billedet", "error");
-      startTransition(() => {});
+      if (!result.ok) {
+        patchLocal(leadId, { photos: before });
+        toast(result.error ?? "Kunne ikke slette billedet", "error");
+      }
     },
     [leads, patchLocal, run, toast],
   );
@@ -301,7 +357,6 @@ export function LeadsProvider({
       now,
       currentUser,
       savedAt,
-      pending,
       updateLead,
       addNote,
       deleteNote,
@@ -318,7 +373,6 @@ export function LeadsProvider({
       now,
       currentUser,
       savedAt,
-      pending,
       updateLead,
       addNote,
       deleteNote,

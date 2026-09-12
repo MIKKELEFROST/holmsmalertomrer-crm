@@ -15,7 +15,24 @@ status.
 - **Supabase** — Postgres, auth, filer og Row Level Security, i `eu-west-1`
   (Irland), så kundedata bliver i EU. Projektet ligger på Holms' egen
   Supabase-konto, så de ejer deres data uafhængigt af bureauet.
-- **Vercel** til hosting
+- **Vercel** til hosting, i `dub1` (Dublin)
+
+### Hvorfor Dublin
+
+`vercel.json` binder serverfunktionerne til `dub1`. Det er ikke en detalje.
+Vercels standard er `iad1` i Washington, og der lå appen: hver eneste
+databaseforespørgsel gik fra Washington til Irland og tilbage, mens brugeren
+sad i Danmark og ventede på begge ben af turen. Målt på det live site kostede
+en sideindlæsning 0,4–1,8 sekunder, næsten alt sammen ventetid på nettet.
+
+`dub1` er den samme AWS-region som databasen, så en forespørgsel går fra
+millisekunder-i-hundredvis til enkeltcifrede. Stockholm ligger tættere på
+brugerne, men længere fra databasen, og siden laver flere forespørgsler pr.
+indlæsning end brugeren laver sideskift — så det er nærheden til databasen der
+tæller. Statiske filer serveres uændret fra Vercels netværk tættest på
+brugeren; regionen gælder kun funktionerne.
+
+Flyttes databasen nogensinde, skal `vercel.json` med.
 
 ## Kom i gang
 
@@ -158,11 +175,41 @@ Fra design-handoffen, og stadig åbent:
 4. **Estimeret værdi vs. tilbudspris** er to felter. Viser det sig at være
    dobbeltarbejde, kan pipelinen bygge på tilbudsprisen alene.
 
-## Kendte afvejninger
+## Hastighed
 
-Hver feltændring kalder `revalidatePath("/")`, så serveren renderer siden
-forfra efter hvert autogem. Det holder historikken opdateret — statusskift
-skrives serverside — men koster et rundtur pr. gemt felt. Bliver det mærkbart
-under redigering, er næste skridt at lade klienten selv tilføje de
-historikposter den kan forudsige, og kun revalidere ved de handlinger hvor
-serveren skaber noget nyt.
+Tre ting holder appen hurtig. De ser små ud i koden og er de eneste grunde
+til at den ikke er langsom:
+
+1. **Funktionerne kører i Dublin**, samme sted som databasen — se ovenfor.
+2. **Navigation rører ikke serveren.** URL'en skrives med det native history
+   API, ikke `router.push`. Alle leads ligger i browseren og filtreres der.
+3. **Autogem henter ikke siden forfra.** Ingen server action kalder
+   `revalidatePath("/")`. De returnerer i stedet de rækker de har skabt —
+   historikposten, noten, det nye lead, billedet med sin signerede URL — og
+   klienten fletter dem ind i listen den allerede har. Det er ikke et gæt om
+   hvad serveren gjorde; det er rækkerne med deres rigtige id'er og
+   tidsstempler.
+
+Sætter man `revalidatePath("/")` tilbage i en handling, koster hvert eneste
+blur i et felt en fuld genindlæsning af alle leads, noter, historik og
+billeder. Det er den fælde der gjorde appen langsom første gang.
+
+Serveren spørger heller ikke Supabase hvem brugeren er ved hvert kald:
+`getClaims()` verificerer token'et lokalt mod projektets ES256-nøgle, hvor
+`getUser()` ville koste en netværkstur pr. sideindlæsning og pr. skrivning.
+
+Sidefunktionen i `app/page.tsx` er bevidst ikke `async`. Skallen strømmer ud
+med det samme, så browseren kan hente CSS, fonte og JavaScript mens
+databasen svarer, i stedet for at vente på begge dele efter hinanden.
+
+### Hvad der stadig kan mærkes
+
+Første besøg efter en pause er langsommere end de næste — Vercel starter
+serverfunktionen op, og på Hobby-planen sker det ofte, fordi appen bruges af
+to personer nogle gange om dagen. Det ligger i hostingen, ikke i koden.
+Vercels **Fluid compute** (Settings → Functions) holder instanser varme
+længere og er den knap der findes for det.
+
+Alle leads hentes ved hver sideindlæsning. Ved et par hundrede er det
+hurtigere end at spørge serveren for hvert filterklik. Skal det op i
+tusinder, er det `getLeads()` i `lib/leads.ts` der skal sideinddeles.

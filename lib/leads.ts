@@ -15,7 +15,38 @@ const PHOTO_URL_TTL_SECONDS = 60 * 60 * 8;
 export async function getLeads(): Promise<Lead[]> {
   const supabase = await createClient();
 
-  const [leadsResult, notesResult, activityResult, photosResult] =
+  // Billederne og deres signerede URLs er én kæde for sig: signeringen skal
+  // vente på billedrækkerne, men ikke på leads, noter og historik. Lå den
+  // efter et samlet Promise.all, ville den koste en ekstra rundtur til
+  // databasen i serie med de andre.
+  const withPhotoUrls = (async () => {
+    const { data } = await supabase
+      .from("lead_photos")
+      .select("*")
+      .order("created_at", { ascending: true });
+
+    const photos = (data ?? []) as LeadPhoto[];
+    const signedUrls = new Map<string, string>();
+
+    // Bucket'en er privat, så hvert billede skal have en signeret URL med.
+    if (photos.length > 0) {
+      const { data: signed } = await supabase.storage
+        .from("lead-photos")
+        .createSignedUrls(
+          photos.map((p) => p.path),
+          PHOTO_URL_TTL_SECONDS,
+        );
+      for (const item of signed ?? []) {
+        if (item.signedUrl && item.path) {
+          signedUrls.set(item.path, item.signedUrl);
+        }
+      }
+    }
+
+    return { photos, signedUrls };
+  })();
+
+  const [leadsResult, notesResult, activityResult, { photos, signedUrls }] =
     await Promise.all([
       supabase
         .from("leads")
@@ -29,10 +60,7 @@ export async function getLeads(): Promise<Lead[]> {
         .from("lead_activity")
         .select("*")
         .order("created_at", { ascending: false }),
-      supabase
-        .from("lead_photos")
-        .select("*")
-        .order("created_at", { ascending: true }),
+      withPhotoUrls,
     ]);
 
   if (leadsResult.error) throw leadsResult.error;
@@ -40,21 +68,6 @@ export async function getLeads(): Promise<Lead[]> {
   const leads = (leadsResult.data ?? []) as Lead[];
   const notes = (notesResult.data ?? []) as LeadNote[];
   const activity = (activityResult.data ?? []) as LeadActivity[];
-  const photos = (photosResult.data ?? []) as LeadPhoto[];
-
-  // Bucket'en er privat, så hvert billede skal have en signeret URL med.
-  const signedUrls = new Map<string, string>();
-  if (photos.length > 0) {
-    const { data } = await supabase.storage
-      .from("lead-photos")
-      .createSignedUrls(
-        photos.map((p) => p.path),
-        PHOTO_URL_TTL_SECONDS,
-      );
-    for (const item of data ?? []) {
-      if (item.signedUrl && item.path) signedUrls.set(item.path, item.signedUrl);
-    }
-  }
 
   const group = <T extends { lead_id: string }>(rows: T[]) => {
     const map = new Map<string, T[]>();
@@ -81,13 +94,40 @@ export async function getLeads(): Promise<Lead[]> {
   }));
 }
 
-/** Den indloggede brugers visningsnavn — bruges som forfatter på noter. */
+/**
+ * Den indloggede brugers visningsnavn — bruges som forfatter på noter.
+ *
+ * getClaims() frem for getUser(). getUser() spørger altid Supabases
+ * auth-server, altså en netværksrundtur hver eneste gang navnet skal bruges
+ * — ved hver sideindlæsning og ved hver skrivning. getClaims() verificerer
+ * i stedet token'ets signatur lokalt: projektet signerer med ES256, og den
+ * offentlige nøgle hentes én gang pr. serverinstans og genbruges derefter.
+ * Samme sikkerhed, ingen rundtur.
+ */
 export async function getCurrentUserName(): Promise<string> {
   const supabase = await createClient();
-  const { data } = await supabase.auth.getUser();
-  const user = data.user;
-  if (!user) return "Ukendt";
-  const metaName = user.user_metadata?.full_name ?? user.user_metadata?.name;
+  const { data } = await supabase.auth.getClaims();
+  const claims = data?.claims;
+  if (!claims) return "Ukendt";
+
+  const metadata = claims.user_metadata as Record<string, unknown> | undefined;
+  const metaName = metadata?.full_name ?? metadata?.name;
   if (typeof metaName === "string" && metaName.trim()) return metaName.trim();
-  return user.email?.split("@")[0] ?? "Ukendt";
+
+  const email = typeof claims.email === "string" ? claims.email : null;
+  return email?.split("@")[0] ?? "Ukendt";
+}
+
+/**
+ * Signerer én billed-URL. Bruges når et nyt billede lige er uploadet, så det
+ * kan vises med det samme uden at hente hele siden forfra.
+ */
+export async function signPhotoUrl(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  path: string,
+): Promise<string | undefined> {
+  const { data } = await supabase.storage
+    .from("lead-photos")
+    .createSignedUrl(path, PHOTO_URL_TTL_SECONDS);
+  return data?.signedUrl;
 }

@@ -1,8 +1,7 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentUserName } from "@/lib/leads";
+import { getCurrentUserName, signPhotoUrl } from "@/lib/leads";
 import { cityForZip } from "@/lib/postal-codes";
 import { displayDate, kr, parseAddress } from "@/lib/format";
 import {
@@ -10,12 +9,52 @@ import {
   STATUSES,
   type DurationUnit,
   type Lead,
+  type LeadActivity,
+  type LeadNote,
+  type LeadPhoto,
   type LeadStatus,
 } from "@/lib/types";
+
+/**
+ * Ingen af handlingerne her kalder revalidatePath("/").
+ *
+ * Det gjorde de før, og det kostede: siden er en server component, så hvert
+ * eneste autogem hentede alle leads, noter, historik og billeder forfra og
+ * sendte hele træet ned igen — for at ændre ét tal. Ved et blur pr. felt
+ * bliver det til en fuld genindlæsning flere gange i minuttet.
+ *
+ * I stedet returnerer hver handling de rækker den har skabt, og klienten
+ * fletter dem ind i den liste den allerede har. Det er ikke et gæt om hvad
+ * serveren mon gjorde — det er de rigtige rækker med deres rigtige id'er og
+ * tidsstempler. Ved en almindelig genindlæsning af siden hentes alt forfra
+ * som før; ruten er dynamisk, så der er intet cache-lag at holde rent.
+ */
 
 export interface ActionResult {
   ok: boolean;
   error?: string;
+}
+
+/** Rækker serveren skabte undervejs, så klienten kan flette dem ind. */
+export interface UpdateLeadResult extends ActionResult {
+  activity?: LeadActivity[];
+}
+
+export interface AddNoteResult extends ActionResult {
+  note?: LeadNote;
+}
+
+export interface LogActivityResult extends ActionResult {
+  activity?: LeadActivity;
+}
+
+export interface CreateLeadResult extends ActionResult {
+  lead?: Lead;
+}
+
+export interface RegisterPhotoResult extends ActionResult {
+  photo?: LeadPhoto;
+  activity?: LeadActivity;
 }
 
 const ok: ActionResult = { ok: true };
@@ -137,7 +176,7 @@ function coerce(field: WritableField, raw: unknown): unknown | undefined {
 export async function updateLead(
   leadId: string,
   patch: LeadPatch,
-): Promise<ActionResult> {
+): Promise<UpdateLeadResult> {
   const supabase = await createClient();
 
   const { data: existing, error: readError } = await supabase
@@ -187,43 +226,45 @@ export async function updateLead(
   const { error } = await supabase.from("leads").update(updates).eq("id", leadId);
   if (error) return fail(error.message);
 
-  if (logLines.length > 0) {
-    const who = await getCurrentUserName();
-    await supabase.from("lead_activity").insert(
-      logLines.map((what) => ({ lead_id: leadId, what, who })),
-    );
-  }
+  if (logLines.length === 0) return ok;
 
-  revalidatePath("/");
-  return ok;
+  // .select() koster ikke en ekstra rundtur — PostgREST sender de oprettede
+  // rækker med i svaret på selve indsættelsen.
+  const who = await getCurrentUserName();
+  const { data: created } = await supabase
+    .from("lead_activity")
+    .insert(logLines.map((what) => ({ lead_id: leadId, what, who })))
+    .select();
+
+  return { ok: true, activity: (created ?? []) as LeadActivity[] };
 }
 
 /** Tilføjer en intern note. Den eneste handling med en eksplicit gem-knap. */
 export async function addNote(
   leadId: string,
   text: string,
-): Promise<ActionResult> {
+): Promise<AddNoteResult> {
   const trimmed = text.trim();
   if (!trimmed) return fail("Noten er tom");
 
   const supabase = await createClient();
   const author = await getCurrentUserName();
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("lead_notes")
-    .insert({ lead_id: leadId, text: trimmed.slice(0, 5000), author });
+    .insert({ lead_id: leadId, text: trimmed.slice(0, 5000), author })
+    .select()
+    .single();
 
-  if (error) return fail(error.message);
+  if (error || !data) return fail(error?.message ?? "Kunne ikke gemme noten");
 
-  revalidatePath("/");
-  return ok;
+  return { ok: true, note: data as LeadNote };
 }
 
 export async function deleteNote(noteId: string): Promise<ActionResult> {
   const supabase = await createClient();
   const { error } = await supabase.from("lead_notes").delete().eq("id", noteId);
   if (error) return fail(error.message);
-  revalidatePath("/");
   return ok;
 }
 
@@ -231,17 +272,19 @@ export async function deleteNote(noteId: string): Promise<ActionResult> {
 export async function logActivity(
   leadId: string,
   what: string,
-): Promise<ActionResult> {
+): Promise<LogActivityResult> {
   const supabase = await createClient();
   const who = await getCurrentUserName();
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("lead_activity")
-    .insert({ lead_id: leadId, what: what.slice(0, 500), who });
+    .insert({ lead_id: leadId, what: what.slice(0, 500), who })
+    .select()
+    .single();
 
-  if (error) return fail(error.message);
-  revalidatePath("/");
-  return ok;
+  if (error || !data) return fail(error?.message ?? "Kunne ikke skrive historik");
+
+  return { ok: true, activity: data as LeadActivity };
 }
 
 export interface NewLeadInput {
@@ -259,7 +302,7 @@ export interface NewLeadInput {
  */
 export async function createLead(
   input: NewLeadInput,
-): Promise<ActionResult & { leadId?: string }> {
+): Promise<CreateLeadResult> {
   const name = input.name.trim();
   if (!name) return fail("Skriv mindst et navn");
 
@@ -284,19 +327,31 @@ export async function createLead(
       campaign_name: "Oprettet manuelt",
       status: "Nye",
     })
-    .select("id")
+    .select()
     .single();
 
   if (error || !data) return fail(error?.message ?? "Kunne ikke oprette leadet");
 
-  await supabase.from("lead_activity").insert({
-    lead_id: data.id,
-    what: `Lead oprettet manuelt (${input.source})`,
-    who,
-  });
+  const { data: created } = await supabase
+    .from("lead_activity")
+    .insert({
+      lead_id: data.id,
+      what: `Lead oprettet manuelt (${input.source})`,
+      who,
+    })
+    .select()
+    .single();
 
-  revalidatePath("/");
-  return { ok: true, leadId: data.id };
+  // Hele rækken tilbage, ikke bare id'et: så kan klienten lægge leadet ind i
+  // listen med det samme frem for at vente på at hele siden hentes forfra.
+  const lead: Lead = {
+    ...(data as Lead),
+    notes: [],
+    activity: created ? [created as LeadActivity] : [],
+    photos: [],
+  };
+
+  return { ok: true, lead };
 }
 
 /** Registrerer et uploadet billede. Selve filen er lagt i Storage af klienten. */
@@ -304,18 +359,29 @@ export async function registerPhoto(
   leadId: string,
   path: string,
   originalName: string | null,
-): Promise<ActionResult> {
+): Promise<RegisterPhotoResult> {
   const supabase = await createClient();
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("lead_photos")
-    .insert({ lead_id: leadId, path, original_name: originalName });
+    .insert({ lead_id: leadId, path, original_name: originalName })
+    .select()
+    .single();
 
-  if (error) return fail(error.message);
+  if (error || !data) return fail(error?.message ?? "Kunne ikke gemme billedet");
 
-  await logActivity(leadId, "Billede tilføjet");
-  revalidatePath("/");
-  return ok;
+  // Bucket'en er privat, så billedet skal have en signeret URL med tilbage —
+  // ellers kunne klienten ikke vise det den lige har uploadet.
+  const [url, logged] = await Promise.all([
+    signPhotoUrl(supabase, path),
+    logActivity(leadId, "Billede tilføjet"),
+  ]);
+
+  return {
+    ok: true,
+    photo: { ...(data as LeadPhoto), url },
+    activity: logged.activity,
+  };
 }
 
 export async function deletePhoto(
@@ -331,7 +397,6 @@ export async function deletePhoto(
   // med, mens et billede der bliver hængende i UI'et ikke er.
   await supabase.storage.from("lead-photos").remove([path]);
 
-  revalidatePath("/");
   return ok;
 }
 
@@ -369,6 +434,5 @@ export async function deleteLead(leadId: string): Promise<ActionResult> {
   const { error } = await supabase.from("leads").delete().eq("id", leadId);
   if (error) return fail(error.message);
 
-  revalidatePath("/");
   return ok;
 }
