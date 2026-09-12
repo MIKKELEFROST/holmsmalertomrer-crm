@@ -12,8 +12,9 @@ status.
 
 - **Next.js 16** (App Router, Turbopack) + TypeScript
 - **Tailwind CSS v4** til design-tokens, inline styles til komponentgeometri
-- **Supabase** — Postgres, auth, filer og Row Level Security, i `eu-central-1`
-  (Frankfurt), så kundedata bliver i EU
+- **Supabase** — Postgres, auth, filer og Row Level Security, i `eu-west-1`
+  (Irland), så kundedata bliver i EU. Projektet ligger på Holms' egen
+  Supabase-konto, så de ejer deres data uafhængigt af bureauet.
 - **Vercel** til hosting
 
 ## Kom i gang

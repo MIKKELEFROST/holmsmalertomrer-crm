@@ -25,14 +25,33 @@ export function LoginForm() {
     setError(null);
 
     const supabase = createClient();
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
-    });
+
+    let signInError;
+    try {
+      ({ error: signInError } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      }));
+    } catch {
+      setError("Ingen forbindelse. Tjek dit net og prøv igen.");
+      setBusy(false);
+      return;
+    }
 
     if (signInError) {
-      // Sig ikke om det var mailen eller kodeordet der var forkert.
-      setError("Forkert e-mail eller adgangskode");
+      // Skeln mellem "du skrev forkert" og "systemet svarer ikke". Sender man
+      // altid det første, går Meick og prøver adgangskoder i ti minutter mens
+      // problemet i virkeligheden er at databasen er nede.
+      const badCredentials =
+        signInError.code === "invalid_credentials" ||
+        signInError.status === 400;
+
+      setError(
+        badCredentials
+          ? // Sig ikke om det var mailen eller kodeordet der var forkert.
+            "Forkert e-mail eller adgangskode"
+          : "Systemet svarer ikke lige nu. Prøv igen om lidt.",
+      );
       setBusy(false);
       return;
     }

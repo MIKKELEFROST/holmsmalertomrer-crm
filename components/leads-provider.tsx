@@ -19,6 +19,7 @@ import {
   logActivity as logActivityAction,
   registerPhoto as registerPhotoAction,
   updateLead as updateLeadAction,
+  type ActionResult,
   type LeadPatch,
   type NewLeadInput,
 } from "@/app/actions";
@@ -119,6 +120,32 @@ export function LeadsProvider({
     );
   }, []);
 
+  /**
+   * Kalder en server action og oversætter et netværkssvigt til det samme
+   * svar som serveren selv ville have givet.
+   *
+   * Uden det her kaster et mistet netværk ud af kaldet: tælleren for
+   * igangværende skrivninger bliver hængende, den optimistiske ændring
+   * rulles aldrig tilbage, og feltet ser gemt ud. Meick står i en kælder
+   * uden dækning og tror prisen er noteret. Det er den fejl der gør mest
+   * skade, fordi den er tavs.
+   */
+  const run = useCallback(
+    async <T extends ActionResult>(
+      action: () => Promise<T>,
+    ): Promise<T | ActionResult> => {
+      inFlight.current++;
+      try {
+        return await action();
+      } catch {
+        return { ok: false, error: "Ingen forbindelse — prøv igen" };
+      } finally {
+        inFlight.current--;
+      }
+    },
+    [],
+  );
+
   const updateLead = useCallback(
     async (leadId: string, patch: LeadPatch) => {
       const before = leads.find((l) => l.id === leadId);
@@ -126,10 +153,7 @@ export function LeadsProvider({
 
       // Optimistisk: skriv med det samme, rul tilbage hvis serveren afviser.
       patchLocal(leadId, patch as Partial<Lead>);
-      inFlight.current++;
-
-      const result = await updateLeadAction(leadId, patch);
-      inFlight.current--;
+      const result = await run(() => updateLeadAction(leadId, patch));
 
       if (!result.ok) {
         patchLocal(leadId, before);
@@ -143,14 +167,12 @@ export function LeadsProvider({
       }));
       startTransition(() => {});
     },
-    [leads, patchLocal, toast],
+    [leads, patchLocal, run, toast],
   );
 
   const addNote = useCallback(
     async (leadId: string, text: string) => {
-      inFlight.current++;
-      const result = await addNoteAction(leadId, text);
-      inFlight.current--;
+      const result = await run(() => addNoteAction(leadId, text));
 
       if (!result.ok) {
         toast(result.error ?? "Kunne ikke gemme noten", "error");
@@ -159,7 +181,7 @@ export function LeadsProvider({
       toast("Note gemt");
       startTransition(() => {});
     },
-    [toast],
+    [run, toast],
   );
 
   const deleteNote = useCallback(
@@ -169,50 +191,46 @@ export function LeadsProvider({
           .find((l) => l.id === leadId)
           ?.notes?.filter((n) => n.id !== noteId),
       });
-      inFlight.current++;
-      const result = await deleteNoteAction(noteId);
-      inFlight.current--;
+      const result = await run(() => deleteNoteAction(noteId));
 
       if (!result.ok) toast(result.error ?? "Kunne ikke slette noten", "error");
       startTransition(() => {});
     },
-    [leads, patchLocal, toast],
+    [leads, patchLocal, run, toast],
   );
 
   const createLead = useCallback(
     async (input: NewLeadInput) => {
-      inFlight.current++;
-      const result = await createLeadAction(input);
-      inFlight.current--;
+      const result = await run(() => createLeadAction(input));
 
-      if (!result.ok || !result.leadId) {
+      const leadId = "leadId" in result ? result.leadId : undefined;
+      if (!result.ok || !leadId) {
         toast(result.error ?? "Kunne ikke oprette leadet", "error");
         return null;
       }
       toast("Lead oprettet");
       startTransition(() => {});
-      return result.leadId;
+      return leadId;
     },
-    [toast],
+    [run, toast],
   );
 
-  const logActivity = useCallback(async (leadId: string, what: string) => {
-    inFlight.current++;
-    await logActivityAction(leadId, what);
-    inFlight.current--;
-    startTransition(() => {});
-  }, []);
+  const logActivity = useCallback(
+    async (leadId: string, what: string) => {
+      await run(() => logActivityAction(leadId, what));
+      startTransition(() => {});
+    },
+    [run],
+  );
 
   const registerPhoto = useCallback(
     async (leadId: string, path: string, originalName: string | null) => {
-      inFlight.current++;
-      const result = await registerPhotoAction(leadId, path, originalName);
-      inFlight.current--;
+      const result = await run(() => registerPhotoAction(leadId, path, originalName));
 
       if (!result.ok) toast(result.error ?? "Kunne ikke gemme billedet", "error");
       startTransition(() => {});
     },
-    [toast],
+    [run, toast],
   );
 
   const deletePhoto = useCallback(
@@ -222,14 +240,12 @@ export function LeadsProvider({
           .find((l) => l.id === leadId)
           ?.photos?.filter((p) => p.id !== photoId),
       });
-      inFlight.current++;
-      const result = await deletePhotoAction(photoId, path);
-      inFlight.current--;
+      const result = await run(() => deletePhotoAction(photoId, path));
 
       if (!result.ok) toast(result.error ?? "Kunne ikke slette billedet", "error");
       startTransition(() => {});
     },
-    [leads, patchLocal, toast],
+    [leads, patchLocal, run, toast],
   );
 
   // Et nyt Meta-lead skal poppe ind uden refresh — det bliver koldt på timer.
