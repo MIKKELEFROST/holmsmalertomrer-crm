@@ -1,0 +1,264 @@
+@import "tailwindcss";
+
+/* ---------------------------------------------------------------------------
+   Design tokens — Holms Maler & Tømrer CRM
+   Taget 1:1 fra design-handoffen. Ret aldrig en værdi her uden at rette
+   handoffen med, ellers driver produktet fra designet.
+--------------------------------------------------------------------------- */
+
+@theme {
+  /* Brand */
+  --color-navy: #072236;
+  --color-navy-700: #0e3450;
+  --color-navy-600: #154466;
+  --color-navy-500: #1b455f;
+  --color-navy-ink: #1b2e3d;
+
+  --color-yellow: #f8ce0f;
+  --color-yellow-hover: #e5be06;
+  --color-yellow-soft: #fff3c4;
+  --color-yellow-drop: #fff5cc;
+
+  /* Flader */
+  --color-page: #e7ebee;
+  --color-surface: #fafbfc;
+  --color-card: #ffffff;
+  --color-field: #fcfdfd;
+  --color-board: #dde4e9;
+
+  /* Linjer */
+  --color-line: #dce3e8;
+  --color-line-soft: #edf1f4;
+  --color-line-input: #cfd9e0;
+  --color-board-line: #d2dbe1;
+
+  /* Chips */
+  --color-chip: #edf2f6;
+  --color-chip-hover: #dfe7ec;
+
+  /* Tekst */
+  --color-text: #072236;
+  --color-text-2: #3c4c59;
+  --color-text-3: #4c5d6b;
+  --color-text-4: #5d6e7c;
+  --color-on-navy-2: #9fb3c2;
+  --color-on-navy-3: #dce6ed;
+
+  /* Semantisk */
+  --color-link: #105a85;
+  --color-link-hover: #072236;
+  --color-success: #1f7a5a;
+  --color-warn: #b5730a;
+  --color-danger: #a8332a;
+
+  /* Statusfarverne bor i lib/types.ts (STATUS_COLORS), ikke her. Tailwind v4
+     fjerner @theme-variabler den ikke kan se brugt i CSS, og de bruges kun
+     fra JavaScript — så de forsvandt i byggeriet og striberne blev usynlige. */
+
+  /* Typografi */
+  --font-display: var(--font-archivo), "Archivo", system-ui, sans-serif;
+  --font-sans: var(--font-plex), "IBM Plex Sans", system-ui, sans-serif;
+
+  /* Radier */
+  --radius-card: 13px;
+  --radius-card-desktop: 12px;
+  --radius-btn: 11px;
+  --radius-input: 9px;
+  --radius-pill: 20px;
+  --radius-sheet: 18px;
+  --radius-toast: 10px;
+
+  /* Skygger */
+  --shadow-shell: 0 0 60px rgba(7, 34, 54, 0.16);
+  --shadow-card-hover: 0 3px 14px rgba(7, 34, 54, 0.08);
+  --shadow-panel: -12px 0 40px rgba(7, 34, 54, 0.25);
+  --shadow-bottomnav: 0 -4px 16px rgba(7, 34, 54, 0.06);
+  --shadow-toast: 0 6px 24px rgba(7, 34, 54, 0.35);
+
+  /* Breakpoint for layoutskiftet. Skiftet sker på max-width: 899px, så
+     desktop-layoutet starter på 900px. */
+  --breakpoint-app: 900px;
+}
+
+/* ---------------------------------------------------------------------------
+   Base
+--------------------------------------------------------------------------- */
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-page);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  text-size-adjust: 100%;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  background: none;
+  padding: 0;
+}
+
+/* Fokus følger brandet — ikke shadcn's ring. Gul kant, som i handoffen. */
+:focus-visible {
+  outline: 2px solid var(--color-yellow);
+  outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------------------
+   Layoutskift
+   Begge layouts renderes, CSS vælger. Det undgår hydration-mismatch og at et
+   layout sætter sig fast i den forkerte tilstand efter første render.
+--------------------------------------------------------------------------- */
+
+.mobile-only {
+  display: block;
+}
+.desktop-only {
+  display: none;
+}
+
+@media (min-width: 900px) {
+  .mobile-only {
+    display: none;
+  }
+  .desktop-only {
+    display: block;
+  }
+}
+
+/* Tvunget visning — kun til demo og test, aktiveres med ?layout=mobil|desktop */
+[data-force-layout="mobil"] .mobile-only {
+  display: block;
+}
+[data-force-layout="mobil"] .desktop-only {
+  display: none;
+}
+[data-force-layout="desktop"] .mobile-only {
+  display: none;
+}
+[data-force-layout="desktop"] .desktop-only {
+  display: block;
+}
+
+/* ---------------------------------------------------------------------------
+   Hjælpeklasser der bruges mange steder
+--------------------------------------------------------------------------- */
+
+.section-label {
+  font-family: var(--font-display);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-text-3);
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.truncate-1 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Rulle-slideren over kanban-boardet */
+.board-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--color-board-line);
+  outline-offset: 4px;
+}
+.board-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--color-yellow);
+  border: 2px solid var(--color-navy);
+  cursor: grab;
+}
+.board-range::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--color-yellow);
+  border: 2px solid var(--color-navy);
+  cursor: grab;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes panel-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
