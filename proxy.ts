@@ -14,9 +14,32 @@ import { supabaseKey, supabaseUrl } from "@/lib/env";
 const PUBLIC_PATHS = ["/login", "/auth"];
 
 export async function proxy(request: NextRequest) {
+  // Middleware kører før alt andet. Kaster den, får man en tom "Internal
+  // Server Error" på hver eneste side — også /login og fejlgrænsen i
+  // app/error.tsx, som begge ligger bagved. Derfor fanges en manglende
+  // konfiguration her og besvares med noget læsbart.
+  //
+  // Fail-closed: der slippes ingen igennem. Kan sessionen ikke kontrolleres,
+  // skal ingen ind — heller ikke selvom det ville få siden til at se ud som
+  // om den virker.
+  let url: string;
+  let key: string;
+  try {
+    url = supabaseUrl();
+    key = supabaseKey();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("Opsætningen mangler:", message);
+
+    return new NextResponse(message, {
+      status: 503,
+      headers: { "content-type": "text/plain; charset=utf-8" },
+    });
+  }
+
   let response = NextResponse.next({ request });
 
-  const supabase = createServerClient(supabaseUrl(), supabaseKey(), {
+  const supabase = createServerClient(url, key, {
     cookies: {
       getAll() {
         return request.cookies.getAll();
