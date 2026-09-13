@@ -177,7 +177,7 @@ Fra design-handoffen, og stadig åbent:
 
 ## Hastighed
 
-Tre ting holder appen hurtig. De ser små ud i koden og er de eneste grunde
+Seks ting holder appen hurtig. De ser små ud i koden og er de eneste grunde
 til at den ikke er langsom:
 
 1. **Funktionerne kører i Dublin**, samme sted som databasen — se ovenfor.
@@ -188,11 +188,26 @@ til at den ikke er langsom:
    historikposten, noten, det nye lead, billedet med sin signerede URL — og
    klienten fletter dem ind i listen den allerede har. Det er ikke et gæt om
    hvad serveren gjorde; det er rækkerne med deres rigtige id'er og
-   tidsstempler.
+   tidsstempler. Et gem svarer med omkring 350 bytes.
+4. **Supabase-biblioteket ligger ikke på den kritiske sti.** Det fylder
+   253 kB ukomprimeret — mere end React — og ingen side bruger det før efter
+   første tegning. `lib/supabase/client.ts` henter det med et dynamisk
+   import, og `getSupabase()` gemmer løftet så filen kun hentes én gang.
+   Loginsiden og siden med ny adgangskode varmer den op i en effekt, så den
+   ligger klar når der trykkes. Det tog 252 kB af den første indlæsning.
+5. **Datoformateringen husker sine svar.** `Intl.formatToParts` koster
+   omkring 7 µs, og "nu" blev slået op forfra for hvert eneste lead i både
+   KPI'er og opfølgningsgrupper. `toParts` i `lib/format.ts` har nu en
+   cache — samme tidspunkt giver samme kalenderdele, så det er trygt.
+6. **`<link rel="preconnect">` til Supabase** i `app/layout.tsx`. Opslag,
+   håndtryk og TLS sker mens siden tegnes, ikke først når biblioteket er
+   hentet.
 
-Sætter man `revalidatePath("/")` tilbage i en handling, koster hvert eneste
-blur i et felt en fuld genindlæsning af alle leads, noter, historik og
-billeder. Det er den fælde der gjorde appen langsom første gang.
+To fælder at holde øje med: sætter man `revalidatePath("/")` tilbage i en
+handling, koster hvert eneste blur i et felt en fuld genindlæsning af alle
+leads, noter, historik og billeder. Og importerer man `@supabase/ssr` øverst
+i en klientkomponent i stedet for gennem `getSupabase()`, er de 253 kB
+tilbage på den kritiske sti for hver eneste side.
 
 Serveren spørger heller ikke Supabase hvem brugeren er ved hvert kald:
 `getClaims()` verificerer token'et lokalt mod projektets ES256-nøgle, hvor

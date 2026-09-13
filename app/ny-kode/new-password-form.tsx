@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
+import { getSupabase } from "@/lib/supabase/client";
 import { AuthHeading, authButtonStyle, authInputStyle } from "@/components/auth-shell";
 
 /** Kortere end det her er ikke en adgangskode, det er en gæt-mig-leg. */
@@ -28,8 +28,8 @@ export function NewPasswordForm() {
   // samme frem for at lade folk skrive en kode der ikke kan gemmes.
   useEffect(() => {
     let aktiv = true;
-    createClient()
-      .auth.getSession()
+    getSupabase()
+      .then((supabase) => supabase.auth.getSession())
       .then(({ data }) => {
         if (aktiv) setHarSession(Boolean(data.session));
       })
@@ -57,7 +57,8 @@ export function NewPasswordForm() {
     setError(null);
 
     try {
-      const { error: updateError } = await createClient().auth.updateUser({
+      const supabase = await getSupabase();
+      const { error: updateError } = await supabase.auth.updateUser({
         password: kode,
       });
 

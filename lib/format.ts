@@ -66,14 +66,37 @@ const WEEKDAY_INDEX: Record<string, number> = {
   Sat: 6,
 };
 
+/**
+ * Husker sidste svar pr. tidspunkt.
+ *
+ * formatToParts koster omkring 7 µs, og den bliver kaldt igen og igen på de
+ * samme tidspunkter: hvert lead formaterer sin oprettelsesdato, og "nu" slås
+ * op forfra for hvert eneste lead i KPI'erne og opfølgningsgrupperne. Målt
+ * ved 1000 leads var det 7 ms bare i datoformatering pr. gennemløb, og begge
+ * layouts renderer ved hver ændring.
+ *
+ * Funktionen er ren — samme tidspunkt giver samme kalenderdele i en fast
+ * tidszone — så det er trygt at gemme svaret. Cachen ryddes når den bliver
+ * for stor; en fane der står åben hele dagen skal ikke samle på tidspunkter.
+ */
+const partsCache = new Map<number, DateParts>();
+const PARTS_CACHE_MAX = 2000;
+
 export function toParts(input: string | Date): DateParts {
   const date = typeof input === "string" ? new Date(input) : input;
+  const key = date.getTime();
+
+  if (Number.isFinite(key)) {
+    const hit = partsCache.get(key);
+    if (hit) return hit;
+  }
+
   const parts = partsFormatter.formatToParts(date);
   const get = (type: string) =>
     parts.find((p) => p.type === type)?.value ?? "0";
   // Intl kan give "24" som time ved midnat i nogle runtimes; normalisér.
   const hour = Number(get("hour")) % 24;
-  return {
+  const result: DateParts = {
     year: Number(get("year")),
     month: Number(get("month")),
     day: Number(get("day")),
@@ -81,6 +104,13 @@ export function toParts(input: string | Date): DateParts {
     minute: Number(get("minute")),
     weekday: WEEKDAY_INDEX[get("weekday")] ?? 0,
   };
+
+  if (Number.isFinite(key)) {
+    if (partsCache.size >= PARTS_CACHE_MAX) partsCache.clear();
+    partsCache.set(key, result);
+  }
+
+  return result;
 }
 
 /** Dansk kalenderdato som "YYYY-MM-DD". */

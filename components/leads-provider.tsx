@@ -9,7 +9,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { createClient } from "@/lib/supabase/client";
 import {
   addNote as addNoteAction,
   createLead as createLeadAction,
@@ -325,29 +324,48 @@ export function LeadsProvider({
   );
 
   // Et nyt Meta-lead skal poppe ind uden refresh — det bliver koldt på timer.
+  //
+  // Supabase-biblioteket hentes her, ikke øverst i filen: det fylder mere end
+  // React, og appen skal kunne tegnes og klikkes uden at vente på det. Det er
+  // også grunden til oprydningen nedenfor — når hentningen er asynkron, kan
+  // komponenten nå at forsvinde inden den er færdig, og så må der ikke
+  // abonneres på noget der aldrig bliver ryddet op igen.
   useEffect(() => {
-    const supabase = createClient();
-    const channel = supabase
-      .channel("leads-changes")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "leads" },
-        (payload) => {
-          const incoming = payload.new as Lead;
-          setLeads((current) => {
-            if (current.some((l) => l.id === incoming.id)) return current;
-            toast(`Nyt lead: ${incoming.name}`);
-            return [
-              { ...incoming, notes: [], activity: [], photos: [] },
-              ...current,
-            ];
-          });
-        },
-      )
-      .subscribe();
+    let afbrudt = false;
+    let luk: (() => void) | undefined;
+
+    void (async () => {
+      const { getSupabase } = await import("@/lib/supabase/client");
+      const supabase = await getSupabase();
+      if (afbrudt) return;
+
+      const channel = supabase
+        .channel("leads-changes")
+        .on(
+          "postgres_changes",
+          { event: "INSERT", schema: "public", table: "leads" },
+          (payload) => {
+            const incoming = payload.new as Lead;
+            setLeads((current) => {
+              if (current.some((l) => l.id === incoming.id)) return current;
+              toast(`Nyt lead: ${incoming.name}`);
+              return [
+                { ...incoming, notes: [], activity: [], photos: [] },
+                ...current,
+              ];
+            });
+          },
+        )
+        .subscribe();
+
+      luk = () => {
+        void supabase.removeChannel(channel);
+      };
+    })();
 
     return () => {
-      supabase.removeChannel(channel);
+      afbrudt = true;
+      luk?.();
     };
   }, [toast]);
 

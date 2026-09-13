@@ -396,8 +396,8 @@ export function PhotosSection({
     setBusy(true);
 
     try {
-      const { createClient } = await import("@/lib/supabase/client");
-      const supabase = createClient();
+      const { getSupabase } = await import("@/lib/supabase/client");
+      const supabase = await getSupabase();
 
       for (const file of Array.from(files)) {
         // Kamerabilleder fra en nyere telefon er 3-6 MB. Komprimér inden

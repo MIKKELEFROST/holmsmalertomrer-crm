@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
+import { getSupabase, warmSupabase } from "@/lib/supabase/client";
 
 /**
  * Login med e-mail og adgangskode.
@@ -27,15 +27,23 @@ export function LoginForm() {
       : null,
   );
 
+  // Hent Supabase-biblioteket mens der tastes, ikke før siden er tegnet.
+  // Så ligger det klar når der trykkes log ind, uden at have forsinket noget.
+  useEffect(() => {
+    warmSupabase();
+  }, []);
+
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     setBusy(true);
     setError(null);
 
-    const supabase = createClient();
-
     let signInError;
     try {
+      // Hentningen af biblioteket ligger med inde i try'en. Fejler den —
+      // mistet net midt i det — skal knappen ikke stå og sige "Logger ind…"
+      // for evigt uden at fortælle hvorfor.
+      const supabase = await getSupabase();
       ({ error: signInError } = await supabase.auth.signInWithPassword({
         email: email.trim(),
         password,

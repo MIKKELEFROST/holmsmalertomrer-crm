@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/client";
+import { getSupabase, warmSupabase } from "@/lib/supabase/client";
 import { AuthHeading, authButtonStyle, authInputStyle } from "@/components/auth-shell";
 
 /**
@@ -17,13 +17,17 @@ export function ForgotForm() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    warmSupabase();
+  }, []);
+
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     setBusy(true);
     setError(null);
 
     try {
-      const supabase = createClient();
+      const supabase = await getSupabase();
       await supabase.auth.resetPasswordForEmail(email.trim(), {
         redirectTo: `${window.location.origin}/auth/callback?next=/ny-kode`,
       });

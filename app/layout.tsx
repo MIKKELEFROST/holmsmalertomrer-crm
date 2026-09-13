@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Archivo, IBM_Plex_Sans } from "next/font/google";
+import { supabaseUrl } from "@/lib/env";
 import "./globals.css";
 
 const archivo = Archivo({
@@ -34,6 +35,20 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="da" className={`${archivo.variable} ${plex.variable}`}>
+      <head>
+        {/*
+          Åbn forbindelsen til Supabase mens siden stadig tegnes.
+
+          Supabase-biblioteket hentes først efter første tegning, og først
+          derefter ville browseren begynde på opslag, håndtryk og TLS — på
+          mobilnet nemt et par hundrede millisekunder inden det første kald
+          overhovedet kan sendes. Med preconnect ligger forbindelsen klar:
+          appen bruger den til realtime med det samme, og loginsiden til
+          selve login'et få sekunder efter.
+        */}
+        <link rel="preconnect" href={supabaseUrl()} crossOrigin="anonymous" />
+        <link rel="dns-prefetch" href={supabaseUrl()} />
+      </head>
       <body>{children}</body>
     </html>
   );
