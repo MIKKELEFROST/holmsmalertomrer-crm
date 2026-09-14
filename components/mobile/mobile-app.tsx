@@ -167,7 +167,7 @@ function Header({
 ------------------------------------------------------------------------- */
 
 function OverviewTab({ onNewLead }: { onNewLead: () => void }) {
-  const { leads, now } = useLeads();
+  const { leads, now, currentUser } = useLeads();
   const { showStatus } = useAppState();
 
   const kpis = useMemo(() => computeKpis(leads, now), [leads, now]);
@@ -297,8 +297,55 @@ function OverviewTab({ onNewLead }: { onNewLead: () => void }) {
             </button>
           ))}
         </div>
+
+        <LogOutSection currentUser={currentUser} />
       </main>
     </>
+  );
+}
+
+/**
+ * Log ud — nederst på Overblik.
+ *
+ * Desktop har knappen i sidebaren, men mobilen havde den ingen steder, og det
+ * er mobilen appen bruges fra. Den ligger nederst frem for i headeren, hvor
+ * den ville stå ved siden af de knapper der bruges hele dagen med
+ * arbejdshandsker på — at logge sig selv ud ved et fejltryk er en irriterende
+ * fejl at kunne lave.
+ *
+ * En rigtig formular med POST, ikke et link: et GET-kald kan udløses af en
+ * link-forhåndsvisning eller en browser der henter i forvejen.
+ */
+function LogOutSection({ currentUser }: { currentUser: string }) {
+  return (
+    <section
+      style={{
+        marginTop: 28,
+        paddingTop: 18,
+        borderTop: "1px solid var(--color-line)",
+      }}
+    >
+      <form action="/auth/logout" method="post">
+        <button
+          type="submit"
+          style={{
+            minHeight: 44,
+            padding: "0 14px",
+            borderRadius: "var(--radius-input)",
+            border: "1px solid var(--color-line-input)",
+            background: "var(--color-card)",
+            color: "var(--color-text-2)",
+            fontSize: 14,
+            fontWeight: 600,
+          }}
+        >
+          Log ud
+        </button>
+      </form>
+      <p style={{ margin: "8px 0 0", fontSize: 12.5, color: "var(--color-text-4)" }}>
+        Logget ind som {currentUser}.
+      </p>
+    </section>
   );
 }
 
