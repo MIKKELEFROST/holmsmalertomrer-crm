@@ -6,6 +6,7 @@ import { useAppState } from "../app-state";
 import {
   ActionRow,
   ContactSection,
+  CorrespondenceSection,
   HistorySection,
   NotesSection,
   DeleteSection,
@@ -208,6 +209,7 @@ export function LeadPanel({ lead }: { lead: Lead }) {
           />
           <PhotosSection lead={lead} columns={3} aspect="4 / 3" />
           <OfferSection lead={lead} />
+          <CorrespondenceSection lead={lead} />
           <HistorySection lead={lead} />
           <NotesSection lead={lead} />
           <DeleteSection onRequestDelete={() => setSheet("slet")} />

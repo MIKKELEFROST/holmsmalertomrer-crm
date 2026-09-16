@@ -126,6 +126,7 @@ export interface Lead {
   notes?: LeadNote[];
   activity?: LeadActivity[];
   photos?: LeadPhoto[];
+  messages?: Message[];
 }
 
 /** Felter Meick kan redigere direkte i UI'et. */
@@ -173,3 +174,29 @@ export const SMS_TEMPLATES: SmsTemplate[] = [
     text: "Hej {navn}. Jeg følger op på tilbuddet jeg sendte. Er der noget jeg skal uddybe? Mvh Meick.",
   },
 ];
+
+/* -------------------------------------------------------------------------
+   Korrespondance — mails og SMS'er knyttet til leadet
+------------------------------------------------------------------------- */
+
+export const MESSAGE_CHANNELS = ["email", "sms"] as const;
+export type MessageChannel = (typeof MESSAGE_CHANNELS)[number];
+
+/** 'ind' = fra kunden. 'ud' = fra os. */
+export const MESSAGE_DIRECTIONS = ["ind", "ud"] as const;
+export type MessageDirection = (typeof MESSAGE_DIRECTIONS)[number];
+
+export interface Message {
+  id: string;
+  /** Null betyder uafklaret: beskeden kunne ikke matches til et lead. */
+  lead_id: string | null;
+  channel: MessageChannel;
+  direction: MessageDirection;
+  external_id: string;
+  /** Modpartens mailadresse eller telefonnummer, som det stod i beskeden. */
+  counterparty: string;
+  subject: string | null;
+  body: string;
+  sent_at: string;
+  created_at: string;
+}

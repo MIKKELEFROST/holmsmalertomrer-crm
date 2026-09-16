@@ -1,5 +1,5 @@
 import { createClient } from "./supabase/server";
-import type { Lead, LeadActivity, LeadNote, LeadPhoto } from "./types";
+import type { Lead, LeadActivity, LeadNote, LeadPhoto, Message } from "./types";
 
 /** Hvor længe en signeret billed-URL holder. Rigeligt til en arbejdsdag. */
 const PHOTO_URL_TTL_SECONDS = 60 * 60 * 8;
@@ -46,8 +46,13 @@ export async function getLeads(): Promise<Lead[]> {
     return { photos, signedUrls };
   })();
 
-  const [leadsResult, notesResult, activityResult, { photos, signedUrls }] =
-    await Promise.all([
+  const [
+    leadsResult,
+    notesResult,
+    activityResult,
+    messagesResult,
+    { photos, signedUrls },
+  ] = await Promise.all([
       supabase
         .from("leads")
         .select("*")
@@ -60,6 +65,13 @@ export async function getLeads(): Promise<Lead[]> {
         .from("lead_activity")
         .select("*")
         .order("created_at", { ascending: false }),
+      // Korrespondancen læses stigende: en samtale giver kun mening oppefra
+      // og ned, modsat noter og historik hvor det nyeste skal stå øverst.
+      supabase
+        .from("messages")
+        .select("*")
+        .not("lead_id", "is", null)
+        .order("sent_at", { ascending: true }),
       withPhotoUrls,
     ]);
 
@@ -68,6 +80,7 @@ export async function getLeads(): Promise<Lead[]> {
   const leads = (leadsResult.data ?? []) as Lead[];
   const notes = (notesResult.data ?? []) as LeadNote[];
   const activity = (activityResult.data ?? []) as LeadActivity[];
+  const messages = (messagesResult.data ?? []) as Message[];
 
   const group = <T extends { lead_id: string }>(rows: T[]) => {
     const map = new Map<string, T[]>();
@@ -80,6 +93,8 @@ export async function getLeads(): Promise<Lead[]> {
   };
 
   const notesByLead = group(notes);
+  // lead_id er null-bar i skemaet, men rækkerne er filtreret ovenfor.
+  const messagesByLead = group(messages as (Message & { lead_id: string })[]);
   const activityByLead = group(activity);
   const photosByLead = group(photos);
 
@@ -87,6 +102,7 @@ export async function getLeads(): Promise<Lead[]> {
     ...lead,
     notes: notesByLead.get(lead.id) ?? [],
     activity: activityByLead.get(lead.id) ?? [],
+    messages: messagesByLead.get(lead.id) ?? [],
     photos: (photosByLead.get(lead.id) ?? []).map((photo) => ({
       ...photo,
       url: signedUrls.get(photo.path),

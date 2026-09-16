@@ -89,10 +89,12 @@ export async function proxy(request: NextRequest) {
 export const config = {
   matcher: [
     /*
-     * Alt undtagen statiske filer, billeder og intake-endpointet.
-     * /api/leads/inbound har sin egen godkendelse med delt hemmelighed —
-     * hjemmesideformularen har ingen brugersession at vise frem.
+     * Alt undtagen statiske filer, billeder og maskin-endpointene.
+     *
+     * /api/leads/inbound, /api/messages/... har hver deres godkendelse med en
+     * delt hemmelighed. Hjemmesideformularen, GatewayAPI og cron-kaldet har
+     * ingen brugersession at vise frem.
      */
-    "/((?!_next/static|_next/image|favicon.ico|api/leads/inbound|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|api/leads/inbound|api/messages/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };
