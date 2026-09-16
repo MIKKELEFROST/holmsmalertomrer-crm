@@ -6,6 +6,8 @@ import { cityForZip } from "@/lib/postal-codes";
 import { displayDate, kr, parseAddress } from "@/lib/format";
 import { sendSms, smsConfigured } from "@/lib/gatewayapi";
 import { sendMail, smtpConfigured } from "@/lib/smtp";
+import { syncMail } from "@/lib/imap";
+import { serviceClient } from "@/lib/messages";
 import {
   DURATION_UNITS,
   STATUSES,
@@ -45,6 +47,13 @@ export interface UpdateLeadResult extends ActionResult {
 
 export interface AddNoteResult extends ActionResult {
   note?: LeadNote;
+}
+
+export interface RefreshMailResult extends ActionResult {
+  /** Beskeder synkroniseringen hentede lige nu. Kan være tom. */
+  messages?: Message[];
+  /** Mails der ikke kunne kobles til et lead. Vises ikke, men tælles. */
+  udenMatch?: number;
 }
 
 export interface SendEmailResult extends ActionResult {
@@ -608,5 +617,58 @@ export async function sendEmailToLead(
     ok: true,
     message: data as Message,
     ikkeGemtISendt: !sent.gemtISendt,
+  };
+}
+
+/* -------------------------------------------------------------------------
+   Hent nye mails nu
+------------------------------------------------------------------------- */
+
+/**
+ * Kører mailsynkroniseringen med det samme, uden at vente på cron.
+ *
+ * Cron kører hvert 5. minut, og det er rigeligt til daglig drift. Men står
+ * man og venter på et svar fra en kunde, er fem minutter lang tid — og
+ * alternativet er at genindlæse siden og håbe.
+ *
+ * Kalder syncMail direkte frem for at gå gennem HTTP-endpointet: det er den
+ * samme server, så en tur ud på nettet og tilbage ville kun tilføje en
+ * hemmelighed at håndtere og en fejlkilde.
+ */
+export async function refreshMail(): Promise<RefreshMailResult> {
+  const supabase = await createClient();
+
+  // Proxyen kræver allerede en session for at nå hertil, men en server action
+  // skal kunne stå alene: den er et endpoint som alle andre.
+  const { data: claims } = await supabase.auth.getClaims();
+  if (!claims?.claims) return fail("Du er ikke logget ind");
+
+  // Tidspunktet tages før kørslen, så vi kan finde præcis de rækker den
+  // skabte. Realtime sender dem også, men et svar man kan stole på er bedre
+  // end et svar der plejer at komme.
+  const start = new Date().toISOString();
+
+  let report: Awaited<ReturnType<typeof syncMail>>;
+  try {
+    report = await syncMail(serviceClient());
+  } catch (error) {
+    const besked = error instanceof Error ? error.message : String(error);
+    console.error("Manuel mailsynkronisering fejlede:", besked);
+    return fail(besked);
+  }
+
+  const fejl = report.mapper.find((m) => m.fejl !== null);
+  if (fejl) return fail(`${fejl.folder}: ${fejl.fejl}`);
+
+  const { data } = await supabase
+    .from("messages")
+    .select("*")
+    .gte("created_at", start)
+    .order("sent_at", { ascending: true });
+
+  return {
+    ok: true,
+    messages: (data ?? []) as Message[],
+    udenMatch: report.mapper.reduce((sum, m) => sum + m.udenMatch, 0),
   };
 }

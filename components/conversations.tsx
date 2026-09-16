@@ -25,14 +25,14 @@ function preview(text: string): string {
 }
 
 function ConversationRow({ row, now }: { row: Conversation; now: Date }) {
-  const { openLead } = useAppState();
+  const { openThread } = useAppState();
   const { lead, latest, venterPaaSvar, antal } = row;
 
   return (
     <li>
       <button
         type="button"
-        onClick={() => openLead(lead.id)}
+        onClick={() => openThread(lead.id)}
         style={{
           width: "100%",
           textAlign: "left",
@@ -116,20 +116,49 @@ function ConversationRow({ row, now }: { row: Conversation; now: Date }) {
 }
 
 export function ConversationList() {
-  const { leads, now } = useLeads();
+  const { leads, now, refreshMail, refreshing } = useLeads();
   const rows = useMemo(() => conversations(leads), [leads]);
+
+  // Knappen står over listen og også når listen er tom: det er netop når der
+  // ikke er noget, man vil tjekke om der er kommet noget.
+  const hentKnap = (
+    <button
+      type="button"
+      onClick={() => void refreshMail()}
+      disabled={refreshing}
+      style={{
+        alignSelf: "flex-start",
+        minHeight: 44,
+        padding: "0 16px",
+        borderRadius: "var(--radius-pill)",
+        background: "var(--color-chip)",
+        border: "1px solid var(--color-line)",
+        fontFamily: "var(--font-display)",
+        fontSize: 13.5,
+        fontWeight: 700,
+        opacity: refreshing ? 0.6 : 1,
+      }}
+    >
+      {refreshing ? "Henter…" : "Hent nye beskeder"}
+    </button>
+  );
 
   if (rows.length === 0) {
     return (
-      <EmptyNote>
-        Ingen beskeder endnu. Mails til og fra postkassen lander her af sig selv
-        — så snart en af dem kan kobles til et lead.
-      </EmptyNote>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        {hentKnap}
+        <EmptyNote>
+          Ingen beskeder endnu. Mails til og fra postkassen lander her af sig
+          selv — så snart en af dem kan kobles til et lead.
+        </EmptyNote>
+      </div>
     );
   }
 
   return (
-    <ol
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {hentKnap}
+      <ol
       style={{
         listStyle: "none",
         margin: 0,
@@ -139,9 +168,10 @@ export function ConversationList() {
         gap: 10,
       }}
     >
-      {rows.map((row) => (
-        <ConversationRow key={row.lead.id} row={row} now={now} />
-      ))}
-    </ol>
+        {rows.map((row) => (
+          <ConversationRow key={row.lead.id} row={row} now={now} />
+        ))}
+      </ol>
+    </div>
   );
 }

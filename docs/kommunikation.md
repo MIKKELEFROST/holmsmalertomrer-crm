@@ -270,6 +270,23 @@ Fanen **Beskeder** viser alle samtaler, nyeste først, på tværs af leads. De
 kunder hvor den seneste besked kom fra dem, er markeret med gul kant og
 teksten "Venter på svar" — og det er det tal der står i navigationen.
 
+Et tryk på en samtale åbner **beskedtråden alene** — ikke hele leadet.
+Samtalen lå oprindeligt som en sektion nede i lead-detaljen, mellem tilbud og
+historik, og det gjorde siden så lang at samtalen druknede i den. Et lead er
+en sag med pris, status og noter; en samtale er noget andet. Leadet har nu kun
+en enkelt linje der fører til tråden, og tråden har en "Åbn lead"-knap den
+anden vej.
+
+### Hent nye beskeder nu
+
+Både listen og tråden har en knap der kører synkroniseringen med det samme.
+Den kalder `syncMail()` direkte fra en server action frem for at gå gennem
+HTTP-endpointet: det er den samme server, så en tur ud på nettet og tilbage
+ville kun tilføje en hemmelighed at håndtere og en fejlkilde mere.
+
+Cron hvert 5. minut er rigeligt til daglig drift. Knappen er til når man står
+og venter på et bestemt svar.
+
 Tallet er med vilje "hvor mange venter på svar" frem for "hvor mange samtaler".
 Det første kan man gøre noget ved; det andet vokser bare.
 

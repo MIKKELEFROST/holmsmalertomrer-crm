@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useLeads } from "../leads-provider";
 import { useAppState, type DesktopView } from "../app-state";
 import { ConversationList } from "../conversations";
+import { ThreadView } from "../thread";
 import { awaitingReplyCount } from "@/lib/derive";
 import { Kanban } from "./kanban";
 import { LeadTable } from "./lead-table";
@@ -26,8 +27,15 @@ import { kr } from "@/lib/format";
  */
 export function DesktopApp() {
   const { leads, now, currentUser } = useLeads();
-  const { view, filters, selectedLeadId, setQuery, toggleZip, setStatusFilter } =
-    useAppState();
+  const {
+    view,
+    filters,
+    selectedLeadId,
+    selectedThreadId,
+    setQuery,
+    toggleZip,
+    setStatusFilter,
+  } = useAppState();
   const [newLeadOpen, setNewLeadOpen] = useState(false);
 
   const kpis = useMemo(() => computeKpis(leads, now), [leads, now]);
@@ -42,6 +50,10 @@ export function DesktopApp() {
 
   const selectedLead = selectedLeadId
     ? leads.find((l) => l.id === selectedLeadId)
+    : undefined;
+
+  const selectedThread = selectedThreadId
+    ? leads.find((l) => l.id === selectedThreadId)
     : undefined;
 
   const titles: Record<DesktopView, string> = {
@@ -69,9 +81,16 @@ export function DesktopApp() {
           minWidth: 0,
           display: "flex",
           flexDirection: "column",
-          overflow: "hidden",
+          overflow: "auto",
         }}
       >
+        {selectedThread ? (
+          // Tråden fylder hele arbejdsområdet. Topbar, KPI-kort og
+          // postnummerfiltre hører til leads, ikke til en samtale — de ville
+          // kun stjæle plads fra det man er kommet for.
+          <ThreadView key={selectedThread.id} lead={selectedThread} />
+        ) : (
+          <>
         {/* Topbar */}
         <div
           style={{
@@ -252,6 +271,8 @@ export function DesktopApp() {
               }
             />
           </div>
+        )}
+          </>
         )}
       </div>
 
