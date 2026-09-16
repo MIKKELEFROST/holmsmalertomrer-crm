@@ -18,9 +18,11 @@ import {
 } from "@/lib/derive";
 import { kr, weekdayDate } from "@/lib/format";
 import { STATUS_COLORS, type Lead } from "@/lib/types";
+import { ConversationList } from "../conversations";
+import { awaitingReplyCount } from "@/lib/derive";
 
 /**
- * Mobil-layoutet: tre faner og en fast bundnavigation.
+ * Mobil-layoutet: fire faner og en fast bundnavigation.
  *
  * Alt klikbart er mindst 44px højt. Det er ikke en anbefaling — appen bruges
  * med arbejdshandsker på.
@@ -57,6 +59,7 @@ export function MobileApp() {
           {tab === "opfoelgning" ? (
             <FollowUpTab onStatusTap={setStatusSheetLead} onNewLead={() => setNewLeadOpen(true)} />
           ) : null}
+          {tab === "beskeder" ? <MessagesTab onNewLead={() => setNewLeadOpen(true)} /> : null}
           {tab === "alle" ? (
             <AllTab onStatusTap={setStatusSheetLead} onNewLead={() => setNewLeadOpen(true)} />
           ) : null}
@@ -552,6 +555,31 @@ function AllTab({
 }
 
 /* -------------------------------------------------------------------------
+   Fane 3 — Beskeder
+------------------------------------------------------------------------- */
+
+function MessagesTab({ onNewLead }: { onNewLead: () => void }) {
+  const { leads } = useLeads();
+  const venter = useMemo(() => awaitingReplyCount(leads), [leads]);
+
+  return (
+    <>
+      <Header title="Beskeder" onNewLead={onNewLead}>
+        <p style={{ margin: 0, fontSize: 12.5, color: "var(--color-on-navy-2)" }}>
+          {venter === 0
+            ? "Ingen venter på svar"
+            : `${venter} ${venter === 1 ? "kunde venter" : "kunder venter"} på svar`}
+        </p>
+      </Header>
+
+      <main style={{ padding: `18px 20px ${BOTTOM_NAV_HEIGHT + 52}px`, flex: 1 }}>
+        <ConversationList />
+      </main>
+    </>
+  );
+}
+
+/* -------------------------------------------------------------------------
    Bundnavigation — global, også synlig på lead-detaljen
 ------------------------------------------------------------------------- */
 
@@ -561,14 +589,23 @@ function BottomNav() {
 
   const kpis = useMemo(() => computeKpis(leads, now), [leads, now]);
 
+  const venter = awaitingReplyCount(leads);
+
+  // Fire kolonner på 390px giver 97px hver. Etiketterne er forkortet derefter
+  // — "Opfølg." frem for "Opfølgning", som knækkede midt over.
   const items = [
     { key: "overblik" as const, label: "Overblik", sub: `${leads.length} i alt` },
     {
       key: "opfoelgning" as const,
-      label: "Opfølgning",
-      sub: `${kpis.overdue + kpis.dueThisWeek} denne uge`,
+      label: "Opfølg.",
+      sub: `${kpis.overdue + kpis.dueThisWeek} i uge`,
     },
-    { key: "alle" as const, label: "Alle", sub: "søg & filtrér" },
+    {
+      key: "beskeder" as const,
+      label: "Beskeder",
+      sub: venter === 0 ? "ingen nye" : `${venter} venter`,
+    },
+    { key: "alle" as const, label: "Alle", sub: "søg" },
   ];
 
   return (
@@ -580,7 +617,7 @@ function BottomNav() {
         bottom: 0,
         height: BOTTOM_NAV_HEIGHT,
         display: "grid",
-        gridTemplateColumns: "repeat(3, 1fr)",
+        gridTemplateColumns: "repeat(4, 1fr)",
         background: "var(--color-card)",
         boxShadow: "var(--shadow-bottomnav)",
         zIndex: 40,
@@ -609,13 +646,20 @@ function BottomNav() {
             <span
               style={{
                 fontFamily: "var(--font-display)",
-                fontSize: 14,
+                fontSize: 13,
                 fontWeight: 700,
+                whiteSpace: "nowrap",
               }}
             >
               {item.label}
             </span>
-            <span style={{ fontSize: 11, color: "var(--color-text-4)" }}>
+            <span
+              style={{
+                fontSize: 10.5,
+                color: "var(--color-text-4)",
+                whiteSpace: "nowrap",
+              }}
+            >
               {item.sub}
             </span>
           </button>

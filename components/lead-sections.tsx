@@ -808,7 +808,25 @@ function MessageBubble({ message }: { message: Message }) {
 
 export function CorrespondenceSection({ lead }: { lead: Lead }) {
   const messages = lead.messages ?? [];
-  if (messages.length === 0) return null;
+
+  // Sektionen bliver stående når den er tom, modsat Historik.
+  //
+  // Historik er en kendt sektion man ved findes. Korrespondance fyldes af en
+  // baggrundssynkronisering, og forsvandt den når den var tom, kunne man ikke
+  // se forskel på "der er ikke kommet mails endnu" og "funktionen virker
+  // ikke". Den tvivl er dyrere end en linje tekst på et tomt lead.
+  if (messages.length === 0) {
+    return (
+      <section style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <SectionLabel>Korrespondance</SectionLabel>
+        <EmptyNote>
+          {lead.email
+            ? `Ingen mails endnu — mails til og fra ${lead.email} lander her af sig selv.`
+            : "Leadet har ingen mailadresse, så mails kan ikke kobles til det. Tilføj en under Kontakt."}
+        </EmptyNote>
+      </section>
+    );
+  }
 
   return (
     <section style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -928,10 +946,12 @@ export function NotesSection({ lead }: { lead: Lead }) {
 export function ActionRow({
   lead,
   onSms,
+  onMail,
   onTemplate,
 }: {
   lead: Lead;
   onSms: () => void;
+  onMail: () => void;
   onTemplate: () => void;
 }) {
   const { logActivity } = useLeads();
@@ -984,9 +1004,14 @@ export function ActionRow({
         SMS
       </button>
 
-      <a
-        href={lead.email ? `mailto:${lead.email}` : undefined}
-        onClick={() => lead.email && void logActivity(lead.id, "Mail åbnet")}
+      {/* Var et mailto:-link, der overlod mailen til telefonens mailprogram
+          og efterlod intet spor. Nu skrives den her og ender i
+          korrespondancen. Er SMTP ikke sat op, åbner arket mailprogrammet
+          som før — knappen opfører sig altså aldrig værre end den gjorde. */}
+      <button
+        type="button"
+        onClick={onMail}
+        disabled={!lead.email}
         style={{
           ...cellStyle,
           background: "var(--color-navy-700)",
@@ -994,8 +1019,8 @@ export function ActionRow({
           ...(lead.email ? {} : disabledStyle),
         }}
       >
-        Mail
-      </a>
+        Skriv mail
+      </button>
 
       <button
         type="button"

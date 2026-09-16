@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react";
 import { useLeads } from "../leads-provider";
 import { useAppState, type DesktopView } from "../app-state";
+import { ConversationList } from "../conversations";
+import { awaitingReplyCount } from "@/lib/derive";
 import { Kanban } from "./kanban";
 import { LeadTable } from "./lead-table";
 import { LeadPanel } from "./lead-panel";
@@ -46,6 +48,7 @@ export function DesktopApp() {
     pipeline: "Pipeline",
     liste: "Alle leads",
     opfoelgning: "Opfølgning",
+    beskeder: "Beskeder",
   };
 
   return (
@@ -230,7 +233,13 @@ export function DesktopApp() {
           </div>
         </div>
 
-        {view === "pipeline" ? (
+        {view === "beskeder" ? (
+          // Samtaler er ikke leads: hverken søgefelt, postnummer-chips eller
+          // statusfilter giver mening her, og tabellen kan ikke vise dem.
+          <div style={{ flex: 1, overflow: "auto", padding: "20px 22px 28px" }}>
+            <ConversationList />
+          </div>
+        ) : view === "pipeline" ? (
           <Kanban leads={visible} />
         ) : (
           <div style={{ flex: 1, overflow: "auto", padding: "20px 22px 28px" }}>
@@ -266,6 +275,7 @@ function Sidebar({
   currentUser: string;
 }) {
   const { view, setView } = useAppState();
+  const { leads } = useLeads();
 
   const items: { key: DesktopView; label: string; count: number }[] = [
     { key: "pipeline", label: "Pipeline", count: totalLeads },
@@ -274,6 +284,13 @@ function Sidebar({
       key: "opfoelgning",
       label: "Opfølgning",
       count: kpis.overdue + kpis.dueThisWeek,
+    },
+    {
+      key: "beskeder",
+      label: "Beskeder",
+      // Tallet er dem der venter på svar, ikke antallet af samtaler.
+      // Et tal man kan gøre noget ved, frem for et tal der bare vokser.
+      count: awaitingReplyCount(leads),
     },
   ];
 

@@ -6,7 +6,13 @@
  */
 
 import { followUpBucket, daysUntil, toParts } from "./format";
-import { OPEN_STATUSES, STATUSES, type Lead, type LeadStatus } from "./types";
+import {
+  OPEN_STATUSES,
+  STATUSES,
+  type Lead,
+  type LeadStatus,
+  type Message,
+} from "./types";
 
 export interface Filters {
   query: string;
@@ -200,4 +206,62 @@ export function nextStatus(status: LeadStatus): LeadStatus | null {
 export function previousStatus(status: LeadStatus): LeadStatus | null {
   const index = STATUSES.indexOf(status);
   return index > 0 ? STATUSES[index - 1] : null;
+}
+
+
+/* -------------------------------------------------------------------------
+   Samtaler — Beskeder-siden
+------------------------------------------------------------------------- */
+
+export interface Conversation {
+  lead: Lead;
+  /** Seneste besked i tråden. Det er den man skal se i en oversigt. */
+  latest: Message;
+  antal: number;
+  /**
+   * Seneste besked er fra kunden, altså skylder vi et svar.
+   *
+   * Det er hele grunden til at siden findes. En liste over samtaler i
+   * tilfældig rækkefølge er bare endnu et sted at lede; en liste hvor det
+   * står hvem der venter på Meick, er en arbejdsliste.
+   */
+  venterPaaSvar: boolean;
+}
+
+/**
+ * Alle leads med korrespondance, nyeste samtale først.
+ *
+ * Afsluttede og tabte leads er med. De falder naturligt nedad efterhånden
+ * som nyere samtaler kommer til, og at skjule dem ville betyde at en kunde
+ * der skriver igen efter et afsluttet job, forsvinder ud af oversigten —
+ * præcis den besked man mindst har råd til at overse.
+ */
+export function conversations(leads: Lead[]): Conversation[] {
+  const rows: Conversation[] = [];
+
+  for (const lead of leads) {
+    const messages = lead.messages ?? [];
+    if (messages.length === 0) continue;
+
+    // Beskederne hentes stigende, så den sidste er den nyeste. Sorteres der
+    // en dag anderledes, holder det her stadig: vi leder efter maksimum.
+    let latest = messages[0];
+    for (const message of messages) {
+      if (message.sent_at > latest.sent_at) latest = message;
+    }
+
+    rows.push({
+      lead,
+      latest,
+      antal: messages.length,
+      venterPaaSvar: latest.direction === "ind",
+    });
+  }
+
+  return rows.sort((a, b) => b.latest.sent_at.localeCompare(a.latest.sent_at));
+}
+
+/** Hvor mange samtaler der venter på et svar. Tallet i bundnavigationen. */
+export function awaitingReplyCount(leads: Lead[]): number {
+  return conversations(leads).filter((c) => c.venterPaaSvar).length;
 }

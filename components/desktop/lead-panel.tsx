@@ -13,7 +13,7 @@ import {
   OfferSection,
   PhotosSection,
 } from "../lead-sections";
-import { DeleteLeadSheet, SmsSheet, TemplateSheet } from "../sheets";
+import { DeleteLeadSheet, MailSheet, SmsSheet, TemplateSheet } from "../sheets";
 import { StatusDot } from "../ui";
 import { fullDateTime, joinParts, kr, taskSummary } from "@/lib/format";
 import { STATUSES, type Lead, type LeadStatus } from "@/lib/types";
@@ -32,7 +32,7 @@ export function LeadPanel({ lead }: { lead: Lead }) {
   const { closeLead } = useAppState();
 
   const [editing, setEditing] = useState(false);
-  const [sheet, setSheet] = useState<"sms" | "tpl" | "slet" | null>(null);
+  const [sheet, setSheet] = useState<"sms" | "mail" | "tpl" | "slet" | null>(null);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -190,6 +190,7 @@ export function LeadPanel({ lead }: { lead: Lead }) {
         <ActionRow
           lead={lead}
           onSms={() => setSheet("sms")}
+          onMail={() => setSheet("mail")}
           onTemplate={() => setSheet("tpl")}
         />
 
@@ -218,6 +219,9 @@ export function LeadPanel({ lead }: { lead: Lead }) {
 
       {sheet === "sms" ? (
         <SmsSheet lead={lead} onClose={() => setSheet(null)} />
+      ) : null}
+      {sheet === "mail" ? (
+        <MailSheet lead={lead} onClose={() => setSheet(null)} />
       ) : null}
       {sheet === "tpl" ? (
         <TemplateSheet lead={lead} onClose={() => setSheet(null)} />

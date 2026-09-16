@@ -5,8 +5,8 @@ import { usePathname, useSearchParams } from "next/navigation";
 import type { Filters } from "@/lib/derive";
 import { STATUSES, type LeadStatus } from "@/lib/types";
 
-export type MobileTab = "overblik" | "opfoelgning" | "alle";
-export type DesktopView = "pipeline" | "liste" | "opfoelgning";
+export type MobileTab = "overblik" | "opfoelgning" | "beskeder" | "alle";
+export type DesktopView = "pipeline" | "liste" | "opfoelgning" | "beskeder";
 
 /**
  * Navigation og filtre bor i URL'en, ikke i komponent-state.
@@ -49,10 +49,16 @@ export function useAppState() {
 }
 
 const isTab = (value: string | null): value is MobileTab =>
-  value === "overblik" || value === "opfoelgning" || value === "alle";
+  value === "overblik" ||
+  value === "opfoelgning" ||
+  value === "beskeder" ||
+  value === "alle";
 
 const isView = (value: string | null): value is DesktopView =>
-  value === "pipeline" || value === "liste" || value === "opfoelgning";
+  value === "pipeline" ||
+  value === "liste" ||
+  value === "opfoelgning" ||
+  value === "beskeder";
 
 export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
