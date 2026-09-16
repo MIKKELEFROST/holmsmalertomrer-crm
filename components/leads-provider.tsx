@@ -21,8 +21,9 @@ import {
   type ActionResult,
   type LeadPatch,
   type NewLeadInput,
+  sendSmsToLead as sendSmsAction,
 } from "@/app/actions";
-import type { Lead, LeadActivity } from "@/lib/types";
+import type { Lead, LeadActivity, Message } from "@/lib/types";
 
 interface Toast {
   id: number;
@@ -44,6 +45,13 @@ interface LeadsContextValue {
   createLead: (input: NewLeadInput) => Promise<string | null>;
   deleteLead: (leadId: string) => Promise<boolean>;
   logActivity: (leadId: string, what: string) => Promise<void>;
+  /**
+   * Sender en SMS og lægger den i korrespondancen.
+   *
+   * Returnerer false hvis GatewayAPI ikke er sat op — så åbner den der kaldte,
+   * telefonens egen SMS-app i stedet, som CRM'et gjorde før.
+   */
+  sendSms: (leadId: string, text: string) => Promise<boolean>;
   registerPhoto: (
     leadId: string,
     path: string,
@@ -218,6 +226,37 @@ export function LeadsProvider({
     [run, toast],
   );
 
+  const sendSms = useCallback(
+    async (leadId: string, text: string): Promise<boolean> => {
+      const result = await run(() => sendSmsAction(leadId, text));
+
+      // Ikke sat op endnu. Ingen fejlbesked — den der kaldte, falder tilbage
+      // til telefonens SMS-app, og det er ikke en fejl for brugeren.
+      if (result.fallback) return false;
+
+      if (!result.ok) {
+        toast(result.error ?? "SMS'en kunne ikke sendes", "error");
+        return true;
+      }
+
+      const message = result.message;
+      if (message) {
+        setLeads((current) =>
+          current.map((lead) =>
+            lead.id === leadId
+              ? { ...lead, messages: [...(lead.messages ?? []), message] }
+              : lead,
+          ),
+        );
+      }
+
+      // result.error sat sammen med ok: beskeden kom frem, men blev ikke gemt.
+      toast(result.error ?? "SMS sendt", result.error ? "error" : "normal");
+      return true;
+    },
+    [run, toast],
+  );
+
   const deleteNote = useCallback(
     async (leadId: string, noteId: string) => {
       const before = leads.find((l) => l.id === leadId)?.notes;
@@ -350,10 +389,33 @@ export function LeadsProvider({
               if (current.some((l) => l.id === incoming.id)) return current;
               toast(`Nyt lead: ${incoming.name}`);
               return [
-                { ...incoming, notes: [], activity: [], photos: [] },
+                { ...incoming, notes: [], activity: [], photos: [], messages: [] },
                 ...current,
               ];
             });
+          },
+        )
+        .on(
+          "postgres_changes",
+          { event: "INSERT", schema: "public", table: "messages" },
+          (payload) => {
+            const incoming = payload.new as Message;
+            // Uden lead_id hører beskeden ikke til nogen åben samtale.
+            if (!incoming.lead_id) return;
+
+            setLeads((current) =>
+              current.map((lead) => {
+                if (lead.id !== incoming.lead_id) return lead;
+                const existing = lead.messages ?? [];
+                // Egne sendte SMS'er er allerede flettet ind af sendSms.
+                if (existing.some((m) => m.id === incoming.id)) return lead;
+                return { ...lead, messages: [...existing, incoming] };
+              }),
+            );
+
+            if (incoming.direction === "ind") {
+              toast(incoming.channel === "sms" ? "Ny SMS" : "Ny mail");
+            }
           },
         )
         .subscribe();
@@ -381,6 +443,7 @@ export function LeadsProvider({
       createLead,
       deleteLead,
       logActivity,
+      sendSms,
       registerPhoto,
       deletePhoto,
       toast,
@@ -397,6 +460,7 @@ export function LeadsProvider({
       createLead,
       deleteLead,
       logActivity,
+      sendSms,
       registerPhoto,
       deletePhoto,
       toast,

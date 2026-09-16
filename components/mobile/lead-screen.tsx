@@ -6,6 +6,7 @@ import { useAppState } from "../app-state";
 import {
   ActionRow,
   ContactSection,
+  CorrespondenceSection,
   HistorySection,
   NotesSection,
   DeleteSection,
@@ -150,6 +151,7 @@ export function MobileLeadScreen({ lead }: { lead: Lead }) {
         <ContactSection lead={lead} editing={editing} onToggleEdit={setEditing} />
         <PhotosSection lead={lead} />
         <OfferSection lead={lead} />
+        <CorrespondenceSection lead={lead} />
         <HistorySection lead={lead} />
         <NotesSection lead={lead} />
         <DeleteSection onRequestDelete={() => setSheet("slet")} />

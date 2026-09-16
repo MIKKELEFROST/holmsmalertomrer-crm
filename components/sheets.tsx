@@ -42,9 +42,30 @@ async function copyToClipboard(text: string): Promise<boolean> {
 ------------------------------------------------------------------------- */
 
 export function SmsSheet({ lead, onClose }: { lead: Lead; onClose: () => void }) {
-  const { logActivity, toast } = useLeads();
+  const { logActivity, sendSms, toast } = useLeads();
+  const [sending, setSending] = useState(false);
 
+  /**
+   * Sender gennem firmanummeret hvis GatewayAPI er sat op — så ligger beskeden
+   * i korrespondancen, og kundens svar kommer retur samme sted.
+   *
+   * Er den ikke sat op, eller skal Meick selv skrive beskeden, åbnes telefonens
+   * egen SMS-app som før. Den vej bliver ikke logget; det er prisen for at
+   * kunne bruge CRM'et før nummeret er på plads.
+   */
   const send = async (label: string | null, text: string) => {
+    if (sending) return;
+
+    if (text.trim()) {
+      setSending(true);
+      const handled = await sendSms(lead.id, text);
+      setSending(false);
+      if (handled) {
+        onClose();
+        return;
+      }
+    }
+
     // Teksten kopieres altid med som fallback: nogle Android-tastaturer
     // dropper body-parameteren i sms:-links.
     await copyToClipboard(text);
@@ -59,6 +80,7 @@ export function SmsSheet({ lead, onClose }: { lead: Lead; onClose: () => void })
       <div style={{ display: "flex", flexDirection: "column", gap: 10, paddingBottom: 8 }}>
         <button
           type="button"
+          disabled={sending}
           onClick={() => void send(null, "")}
           style={{
             textAlign: "left",
@@ -116,10 +138,11 @@ export function SmsSheet({ lead, onClose }: { lead: Lead; onClose: () => void })
               <Button
                 tone="yellow"
                 height={44}
+                disabled={sending}
                 style={{ flexShrink: 0 }}
                 onClick={() => void send(template.label, text)}
               >
-                Send
+                {sending ? "Sender…" : "Send"}
               </Button>
             </div>
           );

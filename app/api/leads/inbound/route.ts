@@ -1,10 +1,10 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse, type NextRequest } from "next/server";
-import { timingSafeEqual } from "node:crypto";
 import { cityForZip } from "@/lib/postal-codes";
 import { cleanPhone, cleanZip, platformName } from "@/lib/meta-import";
 import { parseAddress } from "@/lib/format";
 import { supabaseUrl } from "@/lib/env";
+import { secretMatches } from "@/lib/api-auth";
 
 /**
  * Modtager leads udefra: hjemmesidens kontaktformular og et relay af Meta
@@ -44,14 +44,6 @@ interface InboundPayload {
   campaign_name?: string;
   ad_name?: string;
   form_name?: string;
-}
-
-/** Sammenligner uden at lække længde eller position via svartid. */
-function secretMatches(provided: string, expected: string): boolean {
-  const a = Buffer.from(provided);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(a, b);
 }
 
 function unauthorized() {

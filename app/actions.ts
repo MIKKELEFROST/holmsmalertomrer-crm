@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentUserName, signPhotoUrl } from "@/lib/leads";
 import { cityForZip } from "@/lib/postal-codes";
 import { displayDate, kr, parseAddress } from "@/lib/format";
+import { sendSms, smsConfigured } from "@/lib/gatewayapi";
 import {
   DURATION_UNITS,
   STATUSES,
@@ -13,6 +14,7 @@ import {
   type LeadNote,
   type LeadPhoto,
   type LeadStatus,
+  type Message,
 } from "@/lib/types";
 
 /**
@@ -42,6 +44,15 @@ export interface UpdateLeadResult extends ActionResult {
 
 export interface AddNoteResult extends ActionResult {
   note?: LeadNote;
+}
+
+export interface SendSmsResult extends ActionResult {
+  message?: Message;
+  /**
+   * GatewayAPI er ikke sat op endnu. Klienten åbner telefonens egen SMS-app
+   * som før — beskeden bliver ikke logget, men den kan sendes.
+   */
+  fallback?: boolean;
 }
 
 export interface LogActivityResult extends ActionResult {
@@ -435,4 +446,77 @@ export async function deleteLead(leadId: string): Promise<ActionResult> {
   if (error) return fail(error.message);
 
   return ok;
+}
+
+/* -------------------------------------------------------------------------
+   SMS
+------------------------------------------------------------------------- */
+
+/**
+ * Sender en SMS til leadet og skriver den i korrespondancen.
+ *
+ * Rækkefølgen er vigtig: der sendes først, og gemmes derefter. Gemte vi først,
+ * ville en SMS der aldrig kom af sted stå i korrespondancen som sendt — og så
+ * er logget værre end intet, fordi man tror man har svaret kunden.
+ *
+ * Er GatewayAPI ikke sat op, sendes der ikke noget herfra. Klienten får
+ * fallback: true og åbner telefonens SMS-app, præcis som CRM'et gjorde før.
+ */
+export async function sendSmsToLead(
+  leadId: string,
+  text: string,
+): Promise<SendSmsResult> {
+  const trimmed = text.trim();
+  if (!trimmed) return fail("Beskeden er tom");
+
+  if (!smsConfigured()) return { ok: false, fallback: true };
+
+  const supabase = await createClient();
+
+  // Nummeret hentes fra databasen frem for at komme med fra klienten. Ellers
+  // ville et manipuleret kald kunne sende SMS'er til et vilkårligt nummer for
+  // Holms regning.
+  const { data: lead, error: lookupError } = await supabase
+    .from("leads")
+    .select("phone")
+    .eq("id", leadId)
+    .maybeSingle();
+
+  if (lookupError) return fail(lookupError.message);
+  if (!lead?.phone) return fail("Leadet har ikke noget telefonnummer");
+
+  let sent: Awaited<ReturnType<typeof sendSms>>;
+  try {
+    sent = await sendSms(lead.phone, trimmed);
+  } catch (error) {
+    const besked = error instanceof Error ? error.message : String(error);
+    console.error("SMS kunne ikke sendes:", besked);
+    return fail(besked);
+  }
+
+  const { data, error } = await supabase
+    .from("messages")
+    .insert({
+      lead_id: leadId,
+      channel: "sms",
+      direction: "ud",
+      external_id: sent.id,
+      counterparty: lead.phone,
+      body: trimmed,
+      sent_at: new Date().toISOString(),
+    })
+    .select()
+    .single();
+
+  if (error || !data) {
+    // Beskeden ER sendt. At den ikke kunne gemmes må ikke se ud som om den
+    // ikke blev sendt — så ville den blive sendt igen.
+    console.error("SMS sendt, men ikke gemt:", error?.message);
+    return {
+      ok: true,
+      error: "SMS'en blev sendt, men kunne ikke skrives i korrespondancen",
+    };
+  }
+
+  return { ok: true, message: data as Message };
 }

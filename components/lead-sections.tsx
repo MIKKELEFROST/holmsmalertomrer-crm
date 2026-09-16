@@ -25,6 +25,7 @@ import {
   TASK_TAGS,
   type DurationUnit,
   type Lead,
+  type Message,
 } from "@/lib/types";
 
 /**
@@ -729,6 +730,101 @@ export function HistorySection({ lead }: { lead: Lead }) {
               </p>
             </div>
           </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+/* -------------------------------------------------------------------------
+   Korrespondance — mails og SMS'er, samme spor
+------------------------------------------------------------------------- */
+
+/**
+ * Hvem der skrev hvad, hvornår.
+ *
+ * Mails og SMS'er står i ét spor frem for hver sin fane. Samtalen med en kunde
+ * hopper mellem de to — han skriver en SMS, får et tilbud på mail, svarer med
+ * en SMS — og delt op i to lister giver rækkefølgen ingen mening.
+ *
+ * Ældst øverst, modsat noter og historik. En samtale læses forfra.
+ */
+function MessageBubble({ message }: { message: Message }) {
+  const outgoing = message.direction === "ud";
+
+  return (
+    <li
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: outgoing ? "flex-end" : "flex-start",
+        gap: 3,
+      }}
+    >
+      <div
+        style={{
+          maxWidth: "85%",
+          minWidth: 0,
+          background: outgoing ? "var(--color-yellow-soft)" : "var(--color-card)",
+          border: "1px solid var(--color-line)",
+          borderRadius: "var(--radius-card)",
+          padding: "10px 12px",
+        }}
+      >
+        {message.subject && (
+          <p
+            style={{
+              margin: "0 0 4px",
+              fontFamily: "var(--font-display)",
+              fontSize: 13,
+              fontWeight: 700,
+              lineHeight: 1.35,
+            }}
+          >
+            {message.subject}
+          </p>
+        )}
+        <p
+          style={{
+            margin: 0,
+            fontSize: 14,
+            lineHeight: 1.45,
+            // Mails kommer med deres egne linjeskift. Uden den her står hele
+            // brevet som én klump.
+            whiteSpace: "pre-wrap",
+            overflowWrap: "anywhere",
+          }}
+        >
+          {message.body || "(tom besked)"}
+        </p>
+      </div>
+      <p style={{ margin: 0, fontSize: 11.5, color: "var(--color-text-4)" }}>
+        {message.channel === "email" ? "Mail" : "SMS"} ·{" "}
+        {outgoing ? "sendt" : "modtaget"} · {shortDateTime(message.sent_at)}
+      </p>
+    </li>
+  );
+}
+
+export function CorrespondenceSection({ lead }: { lead: Lead }) {
+  const messages = lead.messages ?? [];
+  if (messages.length === 0) return null;
+
+  return (
+    <section style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <SectionLabel>Korrespondance</SectionLabel>
+      <ol
+        style={{
+          listStyle: "none",
+          margin: 0,
+          padding: 0,
+          display: "flex",
+          flexDirection: "column",
+          gap: 12,
+        }}
+      >
+        {messages.map((message) => (
+          <MessageBubble key={message.id} message={message} />
         ))}
       </ol>
     </section>
