@@ -148,8 +148,23 @@ export function stripQuotedText(body: string): string {
     /^>.*$/m,
     /^-{2,}\s*Oprindelig (besked|mail)\s*-{2,}/im,
     /^-{2,}\s*Original Message\s*-{2,}/im,
-    /^(Den|På) .{3,60} skrev .{1,120}:\s*$/im,
-    /^On .{3,60} wrote:\s*$/im,
+
+    // Citat-indledningen. Den sad oprindeligt som /^(Den|På) … skrev …:$/,
+    // hvilket lod Gmails danske variant slippe igennem:
+    //
+    //   ons. 16. sep. 2026 kl. 13.35 skrev Holms Maler & Tømrer ApS <
+    //
+    // Den begynder med ugedagen frem for "Den", og adressen ombrydes, så
+    // kolonnet havner på næste linje. Begge dele brød mønsteret, og
+    // resultatet var at de citerede >-linjer blev skåret væk mens selve
+    // indledningen stod tilbage som en løs stump tekst.
+    //
+    // Nøglen er "kl. HH.MM" efterfulgt af "skrev". Den kombination er
+    // praktisk taget umulig at skrive ved et uheld i en almindelig sætning,
+    // og den rammer både Gmail, Apple Mail og Outlook på dansk.
+    /^.{0,120}\bkl\.\s*\d{1,2}[.:]\d{2}\b.{0,100}\bskrev\b/im,
+    /^(Den|På) .{3,80} skrev .{1,160}:?\s*$/im,
+    /^On .{3,120}\bwrote\b:?\s*$/im,
     /^Fra:\s.+$/im,
     /^From:\s.+$/im,
   ];
