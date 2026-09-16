@@ -3,6 +3,9 @@
 Formålet er at kommunikationen med en kunde står ét sted — på leadet — frem for
 spredt mellem Meicks mailprogram og hans telefon.
 
+> **Status: mail kører i produktion siden 16-09-2026.** Postkassen synkroniseres
+> hvert 5. minut. SMS er ikke tændt — se fase 2.
+
 **Vi starter med mail alene.** SMS kræver et lejet nummer til en månedlig
 udgift, og den beslutning er udskudt. Koden til begge dele er bygget, men
 SMS-delen slukker sig selv når den ikke er sat op: SMS-arket åbner telefonens
@@ -57,9 +60,24 @@ Settings → Environment Variables.
 | `MAIL_SYNC_BACKFILL_DAYS` | `0` = kun ny mail. `30` henter en måned tilbage ved første kørsel. |
 | `MAIL_SYNC_SECRET` | `openssl rand -hex 32` |
 
+To variabler mere, som ikke handler om mail, men som synkroniseringen falder
+over hvis de mangler:
+
+| Variabel | Hvorfor |
+|---|---|
+| `SUPABASE_SERVICE_ROLE_KEY` | Beskeder skrives med service role, fordi kaldet kommer fra et system uden brugersession. Værdien er den nye **secret**-nøgle (`sb_secret_…`) fra Supabase → API Keys, ikke publishable. |
+| `LEAD_INTAKE_SECRET` | Bruges ikke af mailsynkroniseringen, men af `/api/leads/inbound`. Mangler den, svarer det endpoint 503, og Make-flowet taber leads tavst. |
+
+> **Begge skal være sat på Production.** De lå oprindeligt kun lokalt, fordi de
+> blev oprettet til importscriptet, og det kostede en halv times fejlsøgning
+> ved opsætningen: `/api/messages/email/sync` svarede 500 med
+> "SUPABASE_SERVICE_ROLE_KEY mangler". Vercel indbager miljøvariabler ved
+> deploy, så en ny variabel virker **først efter en redeploy** — det er ikke
+> nok at gemme den.
+
 Simply bruger `mail.simply.com` til IMAP. Port 993 er SSL/TLS hele vejen og er
 den koden regner med; 143 med STARTTLS virker også, men så skal `IMAP_PORT`
-sættes til `143`.
+sættes til `143`. Verificeret mod den rigtige postkasse 16-09-2026 på 993.
 
 Brugernavnet er den fulde mailadresse, ikke kun `tomrer`. Simply har ikke
 app-specifikke adgangskoder, så det er postkassens egen kode der skal bruges.
@@ -75,9 +93,27 @@ adresse, kan variablen stå tom: `IMAP_USER` tælles altid med.
 
 ## 3. Planlagt kørsel
 
-Vercel Cron kan kun køre én gang i døgnet på Hobby-planen, og det er for lidt.
-Brug i stedet Supabase, som kan køre hvert minut uden ekstra betaling. Slå
-`pg_cron` og `pg_net` til under Database → Extensions, og kør så:
+Vercel Cron kan kun køre én gang i døgnet på Hobby-planen, og mail der kommer
+ind én gang i døgnet er ikke et CRM. Derfor kører planlægningen i Supabase med
+`pg_cron`, som kan hvert minut uden ekstra betaling.
+
+**Det er sat op. Herunder står hvad der blev gjort, så det kan genskabes.**
+
+Udvidelserne `pg_cron` og `pg_net` er slået til. `pg_net` giver databasen lov
+til at lave udgående HTTP-kald — en reel ny evne, ikke bare en indstilling.
+Den bruges ét sted: cron-jobbet der ringer til Vercel.
+
+Hemmeligheden ligger i Supabase Vault, ikke i jobbet:
+
+```sql
+select vault.create_secret('<MAIL_SYNC_SECRET>', 'mail_sync_secret', '...');
+```
+
+Kør den linje i SQL-editoren, **ikke** som en migration: en migration gemmes
+permanent i `supabase_migrations`, og så ville hemmeligheden ligge i
+historikken for altid.
+
+Selve jobbet slår den op:
 
 ```sql
 select cron.schedule(
@@ -85,16 +121,43 @@ select cron.schedule(
   '*/5 * * * *',
   $$
     select net.http_post(
-      url     := 'https://<domæne>/api/messages/email/sync',
-      headers := '{"Authorization": "Bearer <MAIL_SYNC_SECRET>"}'::jsonb
-    );
+      url := 'https://holmsmalertomrer-crm.vercel.app/api/messages/email/sync',
+      headers := jsonb_build_object(
+        'Content-Type', 'application/json',
+        'Authorization', 'Bearer ' || (
+          select decrypted_secret from vault.decrypted_secrets
+          where name = 'mail_sync_secret'
+        )
+      ),
+      timeout_milliseconds := 60000
+    ) as request_id;
   $$
 );
 ```
 
-Hemmeligheden står i klartekst i `cron.job`. Det er kun synligt for den der har
-adgang til databasen i forvejen, men skal det være pænt, kan den lægges i
-Supabase Vault og hentes med `vault.decrypted_secrets`.
+**`timeout_milliseconds` skal sættes.** Standarden i `pg_net` er 2000 ms, og et
+synk-kald tager typisk 2-3 sekunder — mere når der ligger en bunke mail. Med
+standarden ville hvert eneste kald blive afbrudt, og det værste er at
+`cron.job_run_details` alligevel ville vise `succeeded`: jobbet *afsendte* jo
+kaldet. Fejlen ville være usynlig, og mailen ville bare aldrig komme ind.
+60 sekunder matcher rutens egen `maxDuration`.
+
+### Se om den kører
+
+```sql
+-- Sidste ti kørsler af selve jobbet
+select status, start_time, end_time
+from cron.job_run_details
+where jobid = (select jobid from cron.job where jobname = 'mail-synk')
+order by start_time desc limit 10;
+
+-- Hvad Vercel faktisk svarede. Det er her fejl bliver synlige —
+-- job_run_details siger kun om kaldet blev afsendt.
+select status_code, timed_out, error_msg, left(content, 200)
+from net._http_response order by created desc limit 10;
+```
+
+`net._http_response` gemmer kun seks timer tilbage.
 
 ## 4. Første kørsel
 
@@ -136,6 +199,10 @@ Tre ting at læse i svaret:
   `null`, blev den ikke fundet, og så logges kun indgående mail.
 - **`udenMatch`** — mails fra afsendere der ikke er leads: nyhedsbreve,
   fakturaer, reklamer. Et højt tal er normalt.
+
+**Verificeret 16-09-2026:** `ok: true`, og `sendtMappe` er `"Sent"` på Holms
+postkasse hos Simply. Den behøver altså ikke gættes — men tjek den igen hvis
+Meick skifter mailprogram, for mappenavnet følger programmet, ikke serveren.
 
 ### Hvis `sendtMappe` er null
 
