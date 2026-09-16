@@ -30,6 +30,18 @@ export interface SyncResult {
   fejl: string | null;
 }
 
+export interface SyncReport {
+  mapper: SyncResult[];
+  /** Den mappe udgående mail blev hentet fra, eller null hvis ingen blev fundet. */
+  sendtMappe: string | null;
+  /**
+   * Alle mappenavne på serveren. Kommer kun med når Sendt-mappen ikke blev
+   * fundet — så kan det rigtige navn læses direkte i svaret på det første
+   * curl-kald, frem for at skulle graves frem i Vercels log.
+   */
+  mapperPaaServeren?: string[];
+}
+
 interface MailConfig {
   host: string;
   port: number;
@@ -80,7 +92,18 @@ function findSentFolder(folders: ListResponse[]): string | null {
   const flagged = folders.find((folder) => folder.specialUse === "\\Sent");
   if (flagged) return flagged.path;
 
-  const names = ["sent", "sent items", "sent mail", "sendt", "sendt post"];
+  // Simply.com er en almindelig IMAP-server uden eget navnevalg, så mappen
+  // hedder det Meicks mailprogram døbte den. Dansk Outlook siger "Sendte
+  // elementer", Apple Mail og Thunderbird siger "Sendt".
+  const names = [
+    "sent",
+    "sent items",
+    "sent mail",
+    "sendt",
+    "sendt post",
+    "sendte elementer",
+    "sendte mails",
+  ];
   const byName = folders.find((folder) =>
     names.includes(folder.name.trim().toLowerCase()),
   );
@@ -239,7 +262,7 @@ async function syncFolder(
  * Fejler den ene mappe, fortsætter den anden. Der er ingen grund til at miste
  * indgående mail fordi Sendt-mappen hedder noget uventet.
  */
-export async function syncMail(supabase: SupabaseClient): Promise<SyncResult[]> {
+export async function syncMail(supabase: SupabaseClient): Promise<SyncReport> {
   const config = mailConfig();
 
   const client = new ImapFlow({
@@ -282,7 +305,11 @@ export async function syncMail(supabase: SupabaseClient): Promise<SyncResult[]> 
       );
     }
 
-    return results;
+    return {
+      mapper: results,
+      sendtMappe: sent,
+      ...(sent ? {} : { mapperPaaServeren: folders.map((f) => f.path) }),
+    };
   } finally {
     // logout() frem for close(): serveren får besked, og forbindelsen bliver
     // ikke hængende til den selv timer ud.

@@ -27,18 +27,18 @@ async function run(request: NextRequest) {
   }
 
   try {
-    const results = await syncMail(serviceClient());
+    const report = await syncMail(serviceClient());
 
     // Fejlede en mappe, skal kaldet fejle udadtil. Ellers står der 200 i
     // cron-loggen mens indbakken i virkeligheden ikke er blevet læst i en uge.
-    const failed = results.filter((result) => result.fejl !== null);
+    const failed = report.mapper.filter((result) => result.fejl !== null);
 
     return NextResponse.json(
       {
         ok: failed.length === 0,
-        mapper: results,
-        gemt: results.reduce((sum, result) => sum + result.gemt, 0),
-        udenMatch: results.reduce((sum, result) => sum + result.udenMatch, 0),
+        ...report,
+        gemt: report.mapper.reduce((sum, result) => sum + result.gemt, 0),
+        udenMatch: report.mapper.reduce((sum, result) => sum + result.udenMatch, 0),
       },
       { status: failed.length === 0 ? 200 : 500 },
     );

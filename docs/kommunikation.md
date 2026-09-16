@@ -1,41 +1,37 @@
 # Korrespondance — mails og SMS i CRM'et
 
-> **Status: koden er bygget og bygger grønt. Der mangler adgange.** Postkassens
-> IMAP-oplysninger og en GatewayAPI-konto med et lejet nummer. Begge dele
-> nedenfor. Indtil de er sat, opfører CRM'et sig præcis som før: `sms:`-links
-> åbner telefonens egen app, og der logges ingen mails.
+Formålet er at kommunikationen med en kunde står ét sted — på leadet — frem for
+spredt mellem Meicks mailprogram og hans telefon.
 
-Formålet er at al kommunikation med en kunde står ét sted — på leadet — frem
-for spredt mellem Meicks mailprogram og hans telefon.
+**Vi starter med mail alene.** SMS kræver et lejet nummer til en månedlig
+udgift, og den beslutning er udskudt. Koden til begge dele er bygget, men
+SMS-delen slukker sig selv når den ikke er sat op: SMS-arket åbner telefonens
+egen app præcis som CRM'et altid har gjort, og webhooken afviser alt.
 
 ```
-Postkasse (IMAP) ──┐
-                   ├─→ messages ─→ Korrespondance på leadet
-GatewayAPI (SMS) ──┘
+Fase 1   Postkasse (IMAP) ──→ messages ──→ Korrespondance på leadet
+Fase 2   GatewayAPI (SMS) ──┘   (udskudt — ingen kodeændring når den tændes)
 ```
 
-## Hvad der sker automatisk
+---
+
+# Fase 1 — Mail
 
 | | Ind | Ud |
 |---|---|---|
-| **Mail** | Hentes fra INBOX hvert 5. minut | Hentes fra Sendt-mappen |
-| **SMS** | Webhook fra GatewayAPI, med det samme | Sendes fra CRM'et, logges straks |
+| **Mail** | INBOX, hentes hvert 5. minut | Sendt-mappen |
 
-Udgående mail hentes fra Sendt-mappen frem for at blive sendt fra CRM'et. Det
-betyder at Meick kan svare fra sin telefon, fra Outlook eller hvor han vil —
-mailen bliver logget uanset. Det ville et "send fra CRM'et"-felt ikke kunne.
+Udgående mail hentes fra **Sendt-mappen** frem for at blive sendt fra CRM'et.
+Det betyder at Meick kan svare fra telefonen, fra sit mailprogram eller hvor han
+vil — mailen bliver logget uanset. Et "send mail"-felt i CRM'et ville kun fange
+det han skrev derinde.
 
-## To designvalg der er værd at kende
+## Mails uden match gemmes ikke
 
-**Mails uden match gemmes ikke.** Kan afsenderen ikke kobles til et lead, går
-mailen ikke i CRM'et. Den ligger stadig i postkassen, så intet er tabt — og
-CRM'et slipper for at være en kopi af nyhedsbreve og fakturaer. Antallet af
-oversprungne mails står i svaret fra synk-endpointet.
-
-**SMS uden match opretter et lead.** Modsat mail har en SMS ikke noget andet
-sted at være: nummeret findes kun her. Kommer der en SMS fra et ukendt nummer,
-oprettes et lead i "Nye" med nummeret som navn og beskeden som beskrivelse.
-Meick retter navnet når han svarer. Er det spam, sletter han leadet.
+Kan afsenderen ikke kobles til et lead, går mailen ikke i CRM'et. Den ligger
+stadig i postkassen, så intet er tabt — og CRM'et slipper for at være en kopi af
+nyhedsbreve, fakturaer og reklamer. Antallet af oversprungne mails står i svaret
+fra synk-endpointet, så det kan ses om matchningen rammer skævt.
 
 ## 1. Kør migrationen
 
@@ -43,31 +39,45 @@ Meick retter navnet når han svarer. Er det spam, sletter han leadet.
 supabase db push
 ```
 
-Opretter `messages`, `mail_sync_state` og opslagsfunktionerne. `messages` er
-med i realtime-publikationen, så en ny besked dukker op uden at siden hentes
-forfra.
+Opretter `messages`, `mail_sync_state` og opslagsfunktionerne. `messages` er med
+i realtime-publikationen, så en ny mail dukker op uden at siden hentes forfra.
 
-## 2. Mail (IMAP)
+## 2. Miljøvariabler
 
-### Miljøvariabler
-
-Sættes i Vercel under Settings → Environment Variables.
+Postkassen er `tomrer@holmsmaler.dk` hos **Simply.com**. Sættes i Vercel under
+Settings → Environment Variables.
 
 | Variabel | Værdi |
 |---|---|
-| `IMAP_HOST` | Fx `imap.one.com`. Står hos udbyderen under "mailopsætning". |
+| `IMAP_HOST` | `mail.simply.com` |
 | `IMAP_PORT` | `993` |
-| `IMAP_USER` | Postkassens adresse |
-| `IMAP_PASSWORD` | Adgangskoden. Kan udbyderen lave en app-specifik kode, så brug den. |
-| `MAIL_OWN_ADDRESSES` | Andre egne adresser, med komma imellem. Afgør hvad der er udgående. |
+| `IMAP_USER` | `tomrer@holmsmaler.dk` |
+| `IMAP_PASSWORD` | Adgangskoden til postkassen — den der er oprettet i Simply-kontrolpanelet |
+| `MAIL_OWN_ADDRESSES` | Andre egne adresser, med komma imellem. Tom hvis der kun er den ene. |
 | `MAIL_SYNC_BACKFILL_DAYS` | `0` = kun ny mail. `30` henter en måned tilbage ved første kørsel. |
 | `MAIL_SYNC_SECRET` | `openssl rand -hex 32` |
 
-### Planlagt kørsel
+Simply bruger `mail.simply.com` til IMAP. Port 993 er SSL/TLS hele vejen og er
+den koden regner med; 143 med STARTTLS virker også, men så skal `IMAP_PORT`
+sættes til `143`.
+
+Brugernavnet er den fulde mailadresse, ikke kun `tomrer`. Simply har ikke
+app-specifikke adgangskoder, så det er postkassens egen kode der skal bruges.
+
+> **Den kode er nu også en systemadgang.** Den lever i Vercels miljøvariabler og
+> giver læseadgang til al kundekorrespondance. Den hører ikke hjemme i repoet,
+> som er offentligt, og bør ikke genbruges til andet. Er den delt i en chat, en
+> mail eller en seddel undervejs, så skift den i Simply-kontrolpanelet bagefter
+> og opdatér variablen i Vercel.
+
+`MAIL_OWN_ADDRESSES` afgør hvad der er udgående mail. Har Holms kun den ene
+adresse, kan variablen stå tom: `IMAP_USER` tælles altid med.
+
+## 3. Planlagt kørsel
 
 Vercel Cron kan kun køre én gang i døgnet på Hobby-planen, og det er for lidt.
-Brug i stedet Supabase, som kan køre hvert minut gratis. Slå `pg_cron` og
-`pg_net` til under Database → Extensions, og kør så:
+Brug i stedet Supabase, som kan køre hvert minut uden ekstra betaling. Slå
+`pg_cron` og `pg_net` til under Database → Extensions, og kør så:
 
 ```sql
 select cron.schedule(
@@ -86,88 +96,115 @@ Hemmeligheden står i klartekst i `cron.job`. Det er kun synligt for den der har
 adgang til databasen i forvejen, men skal det være pænt, kan den lægges i
 Supabase Vault og hentes med `vault.decrypted_secrets`.
 
-### Første kørsel
+## 4. Første kørsel
 
 Med `MAIL_SYNC_BACKFILL_DAYS=0` starter synkroniseringen ved den nyeste mail og
 henter kun det der kommer derefter. Det er med vilje: uden det ville hele
 postkassen — også mail fra før CRM'et fandtes — blive trukket ind 50 ad gangen.
 
-Skal der hentes historik, så sæt variablen til antal dage **før** første
-kørsel. Bagefter står der en række i `mail_sync_state`, og så bliver variablen
-ikke læst igen for den mappe.
+Skal der hentes historik, så sæt variablen til antal dage **før** første kørsel.
+Bagefter står der en række i `mail_sync_state`, og så bliver variablen ikke læst
+igen for den mappe.
 
-### Afprøvning
+## 5. Afprøvning
 
 ```bash
 curl -X POST https://<domæne>/api/messages/email/sync \
   -H "Authorization: Bearer <MAIL_SYNC_SECRET>"
 ```
 
-Svarer med hvad der blev hentet pr. mappe. Blev Sendt-mappen ikke fundet, står
-der en advarsel i Vercels log med alle mappenavne på serveren — det sker hos
-udbydere der hverken sætter `\Sent`-flaget eller bruger et genkendeligt navn.
+Svarer med hvad der blev hentet pr. mappe:
 
-## 3. SMS (GatewayAPI)
-
-### Nummeret
-
-Der skal lejes et **to-vejs-nummer** hos GatewayAPI. Meicks eget mobilnummer kan
-ikke bruges: en gateway kan kun modtage på numre den selv kontrollerer, så en
-SMS til hans SIM-kort når aldrig frem til CRM'et.
-
-Et alfanumerisk afsender-id som `Holms` kan der teknisk set ikke svares på —
-det er en begrænsning i selve SMS-protokollen. Sætter man `SMS_SENDER` til et
-navn frem for et nummer, virker udgående fint, men indgående forsvinder. Derfor
-nummeret.
-
-### Miljøvariabler
-
-| Variabel | Værdi |
-|---|---|
-| `GATEWAYAPI_TOKEN` | API-nøglen fra GatewayAPI |
-| `SMS_SENDER` | Det lejede nummer med landekode, uden plus: `4512345678` |
-| `SMS_WEBHOOK_SECRET` | `openssl rand -hex 32` |
-
-Mangler de to første, sender CRM'et ikke selv — SMS-arket åbner telefonens egen
-app som før.
-
-### Webhook
-
-Sættes op hos GatewayAPI under det lejede nummer. GatewayAPI kan ikke sætte egne
-headers, så hemmeligheden ligger i URL'en:
-
-```
-https://<domæne>/api/messages/sms/inbound?token=<SMS_WEBHOOK_SECRET>
+```json
+{
+  "ok": true,
+  "mapper": [
+    {"folder":"INBOX","hentet":3,"gemt":1,"udenMatch":2,"fejl":null},
+    {"folder":"Sent","hentet":1,"gemt":1,"udenMatch":0,"fejl":null}
+  ],
+  "sendtMappe": "Sent",
+  "gemt": 2,
+  "udenMatch": 2
+}
 ```
 
-Endpointet svarer 500 hvis beskeden ikke kunne gemmes, så GatewayAPI prøver
-igen. Dubletter er der taget højde for: unique på `(channel, external_id)`.
+Tre ting at læse i svaret:
 
-### Afprøvning
+- **`ok: true`** — så virker IMAP-oplysningerne. Er de forkerte, kommer der en
+  fejl med serverens egen begrundelse i stedet.
+- **`sendtMappe`** — navnet på den mappe udgående mail hentes fra. Står der
+  `null`, blev den ikke fundet, og så logges kun indgående mail.
+- **`udenMatch`** — mails fra afsendere der ikke er leads: nyhedsbreve,
+  fakturaer, reklamer. Et højt tal er normalt.
 
-```bash
-curl -X POST "https://<domæne>/api/messages/sms/inbound?token=<SMS_WEBHOOK_SECRET>" \
-  -H "content-type: application/json" \
-  -d '{"id":1,"msisdn":4512345678,"message":"Test","senttime":1789000000}'
-```
+### Hvis `sendtMappe` er null
 
-Brug et nummer der står på et rigtigt lead, så matchningen kan ses virke. Med et
-ukendt nummer skal der dukke et nyt lead op i "Nye".
+Simply er en almindelig IMAP-server, så Sendt-mappen hedder det Meicks
+mailprogram har døbt den: `Sent`, `Sendt` eller `Sendte elementer`. Koden leder
+først efter IMAP-flaget `\Sent` og derefter efter de navne.
+
+Findes den alligevel ikke, kommer **alle mappenavne på serveren** med i svaret
+under `mapperPaaServeren`. Så kan det rigtige navn læses direkte der og
+tilføjes i `findSentFolder()` i `lib/imap.ts`.
 
 ## Matchning
 
-Beskeder kobles til leads på mailadresse (små bogstaver, trimmet) og på de
-sidste otte cifre af telefonnummeret. De otte cifre gør at `12 34 56 78`,
-`+4512345678` og `004512345678` er det samme nummer.
+Mails kobles til leads på mailadresse, i små bogstaver og trimmet. Har den samme
+kunde flere leads — tag i 2024, terrasse i 2026 — hægtes mailen på det nyeste.
+Det er næsten altid den samtale der er i gang.
 
-Har den samme kunde flere leads — tag i 2024, terrasse i 2026 — hægtes beskeden
-på det nyeste. Det er næsten altid den samtale der er i gang.
+Citeret historik skæres fra, så den tiende mail i en tråd ikke indeholder de ni
+foregående. Består mailen udelukkende af citat, vises citatet frem for ingenting.
 
-`public.phone_key()` i databasen og `phoneKey()` i `lib/phone.ts` skal give
-samme svar. Ændres den ene, skal den anden med, ellers holder indekset op med
-at matche det koden leder efter.
+---
 
-## Persondata
+# Fase 2 — SMS (udskudt)
+
+Ikke tændt. Der skal ikke gøres noget i koden for at det bliver ved med at være
+sådan; uden `GATEWAYAPI_TOKEN` og `SMS_SENDER` sender CRM'et ikke selv.
+
+**Sådan fungerer SMS i CRM'et indtil videre:** SMS-arket med skabeloner virker
+som hidtil — det åbner telefonens egen SMS-app med teksten klar, og der skrives
+en linje i Historik om hvilken skabelon der blev brugt. Selve beskedteksten
+bliver ikke gemt, og kundens svar kommer ikke ind i CRM'et.
+
+## Når det en dag skal tændes
+
+1. Lej et **to-vejs-nummer** hos GatewayAPI. Meicks eget mobilnummer kan ikke
+   bruges: en gateway kan kun modtage på numre den selv kontrollerer, så en SMS
+   til hans SIM-kort når aldrig frem til CRM'et.
+2. Sæt `GATEWAYAPI_TOKEN`, `SMS_SENDER` (nummeret med landekode, uden plus) og
+   `SMS_WEBHOOK_SECRET`.
+3. Peg GatewayAPIs webhook på
+   `https://<domæne>/api/messages/sms/inbound?token=<SMS_WEBHOOK_SECRET>`.
+
+Et alfanumerisk afsender-id som `Holms` kan der teknisk set ikke svares på — det
+er en begrænsning i selve SMS-protokollen. Sætter man `SMS_SENDER` til et navn
+frem for et nummer, virker udgående fint, men indgående forsvinder.
+
+Når det tændes: SMS'er uden match opretter et lead i "Nye" med nummeret som navn.
+Modsat mail har en SMS ikke noget andet sted at være — firmanummeret ville kun
+findes her — så gemmer vi den ikke, findes den ingen steder.
+
+## Et gratis alternativ, hvis udgiften er det eneste der stopper
+
+Indgående SMS kan fanges uden et lejet nummer med en videresender-app på Meicks
+Android-telefon, der POSTer hver modtagen SMS til et webhook. Endpointet tager
+allerede imod formen:
+
+```json
+{"id": "...", "msisdn": "4512345678", "message": "...", "senttime": 1789000000}
+```
+
+Det er gratis, men skrøbeligt: det afhænger af at telefonen er tændt, at appen
+ikke bliver lukket ned af batterioptimering, og at alle hans private SMS'er
+passerer gennem appen. Som permanent løsning for en forretning er et rigtigt
+nummer pengene værd — men som en måde at finde ud af om SMS-logning
+overhovedet bliver brugt, inden der betales for det, er det rimeligt.
+
+---
+
+# Persondata
 
 Korrespondancen indeholder kundernes egne beskeder. To ting følger af det:
 
@@ -175,6 +212,6 @@ Korrespondancen indeholder kundernes egne beskeder. To ting følger af det:
 - `messages` slettes sammen med leadet (`on delete cascade`). Sletter Meick et
   lead, ryger korrespondancen med.
 
-Servicebeskeder til en kunde der selv har henvendt sig, er uproblematiske.
-Markedsføring pr. SMS kræver samtykke efter markedsføringslovens § 10 — det
-gælder også en "husk os til foråret" til gamle leads.
+Servicemails til en kunde der selv har henvendt sig, er uproblematiske.
+Markedsføring pr. mail og SMS kræver samtykke efter markedsføringslovens § 10 —
+det gælder også en "husk os til foråret" til gamle leads.
