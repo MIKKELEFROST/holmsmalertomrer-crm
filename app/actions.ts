@@ -5,6 +5,7 @@ import { getCurrentUserName, signPhotoUrl } from "@/lib/leads";
 import { cityForZip } from "@/lib/postal-codes";
 import { displayDate, kr, parseAddress } from "@/lib/format";
 import { sendSms, smsConfigured } from "@/lib/gatewayapi";
+import { sendMail, smtpConfigured } from "@/lib/smtp";
 import {
   DURATION_UNITS,
   STATUSES,
@@ -44,6 +45,17 @@ export interface UpdateLeadResult extends ActionResult {
 
 export interface AddNoteResult extends ActionResult {
   note?: LeadNote;
+}
+
+export interface SendEmailResult extends ActionResult {
+  message?: Message;
+  /**
+   * SMTP er ikke sat op. Klienten åbner mailprogrammet med mailto: som før —
+   * så kan der stadig skrives, det bliver bare ikke logget.
+   */
+  fallback?: boolean;
+  /** Mailen er sendt, men kopien nåede ikke Meicks egen Sendt-mappe. */
+  ikkeGemtISendt?: boolean;
 }
 
 export interface SendSmsResult extends ActionResult {
@@ -519,4 +531,82 @@ export async function sendSmsToLead(
   }
 
   return { ok: true, message: data as Message };
+}
+
+/* -------------------------------------------------------------------------
+   Mail
+------------------------------------------------------------------------- */
+
+/**
+ * Sender en mail til leadet og skriver den i korrespondancen.
+ *
+ * Samme rækkefølge som ved SMS: der sendes først, og gemmes derefter. En mail
+ * der aldrig kom af sted må ikke stå i korrespondancen som sendt.
+ *
+ * external_id er det Message-ID mailen faktisk blev sendt med. Når
+ * IMAP-synkroniseringen om få minutter finder kopien i Sendt-mappen, genkender
+ * den det og springer den over — ellers ville hver sendt mail stå to gange.
+ */
+export async function sendEmailToLead(
+  leadId: string,
+  subject: string,
+  body: string,
+): Promise<SendEmailResult> {
+  const trimmed = body.trim();
+  if (!trimmed) return fail("Mailen er tom");
+
+  if (!smtpConfigured()) return { ok: false, fallback: true };
+
+  const supabase = await createClient();
+
+  // Adressen hentes fra databasen, ikke fra klienten. Ellers kunne et
+  // manipuleret kald sende mails til hvem som helst fra Holms adresse.
+  const { data: lead, error: lookupError } = await supabase
+    .from("leads")
+    .select("email")
+    .eq("id", leadId)
+    .maybeSingle();
+
+  if (lookupError) return fail(lookupError.message);
+  if (!lead?.email) return fail("Leadet har ingen mailadresse");
+
+  let sent: Awaited<ReturnType<typeof sendMail>>;
+  try {
+    sent = await sendMail(lead.email, subject, trimmed);
+  } catch (error) {
+    const besked = error instanceof Error ? error.message : String(error);
+    console.error("Mail kunne ikke sendes:", besked);
+    return fail(besked);
+  }
+
+  const { data, error } = await supabase
+    .from("messages")
+    .insert({
+      lead_id: leadId,
+      channel: "email",
+      direction: "ud",
+      external_id: sent.messageId,
+      counterparty: lead.email,
+      subject: subject.trim() || null,
+      body: trimmed,
+      sent_at: new Date().toISOString(),
+    })
+    .select()
+    .single();
+
+  if (error || !data) {
+    // Mailen ER sendt. At den ikke kunne gemmes må ikke se ud som en fejl,
+    // for så bliver den sendt igen.
+    console.error("Mail sendt, men ikke gemt:", error?.message);
+    return {
+      ok: true,
+      error: "Mailen blev sendt, men kunne ikke skrives i korrespondancen",
+    };
+  }
+
+  return {
+    ok: true,
+    message: data as Message,
+    ikkeGemtISendt: !sent.gemtISendt,
+  };
 }

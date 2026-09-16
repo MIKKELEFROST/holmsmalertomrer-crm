@@ -22,6 +22,7 @@ import {
   type LeadPatch,
   type NewLeadInput,
   sendSmsToLead as sendSmsAction,
+  sendEmailToLead as sendEmailAction,
 } from "@/app/actions";
 import type { Lead, LeadActivity, Message } from "@/lib/types";
 
@@ -52,6 +53,13 @@ interface LeadsContextValue {
    * telefonens egen SMS-app i stedet, som CRM'et gjorde før.
    */
   sendSms: (leadId: string, text: string) => Promise<boolean>;
+  /**
+   * Sender en mail og lægger den i korrespondancen.
+   *
+   * Returnerer false hvis SMTP ikke er sat op — så åbner den der kaldte,
+   * mailprogrammet med mailto: i stedet, som CRM'et gjorde før.
+   */
+  sendEmail: (leadId: string, subject: string, body: string) => Promise<boolean>;
   registerPhoto: (
     leadId: string,
     path: string,
@@ -257,6 +265,40 @@ export function LeadsProvider({
     [run, toast],
   );
 
+  const sendEmail = useCallback(
+    async (leadId: string, subject: string, body: string): Promise<boolean> => {
+      const result = await run(() => sendEmailAction(leadId, subject, body));
+
+      if (result.fallback) return false;
+
+      if (!result.ok) {
+        toast(result.error ?? "Mailen kunne ikke sendes", "error");
+        return true;
+      }
+
+      const message = result.message;
+      if (message) {
+        setLeads((current) =>
+          current.map((lead) =>
+            lead.id === leadId
+              ? { ...lead, messages: [...(lead.messages ?? []), message] }
+              : lead,
+          ),
+        );
+      }
+
+      if (result.error) toast(result.error, "error");
+      else if (result.ikkeGemtISendt) {
+        // Mailen er sendt og logget her, men ligger ikke i Meicks eget
+        // mailprogram. Det skal han vide, ikke opdage senere.
+        toast("Mail sendt — men kom ikke i din Sendt-mappe", "error");
+      } else toast("Mail sendt");
+
+      return true;
+    },
+    [run, toast],
+  );
+
   const deleteNote = useCallback(
     async (leadId: string, noteId: string) => {
       const before = leads.find((l) => l.id === leadId)?.notes;
@@ -444,6 +486,7 @@ export function LeadsProvider({
       deleteLead,
       logActivity,
       sendSms,
+      sendEmail,
       registerPhoto,
       deletePhoto,
       toast,
@@ -461,6 +504,7 @@ export function LeadsProvider({
       deleteLead,
       logActivity,
       sendSms,
+      sendEmail,
       registerPhoto,
       deletePhoto,
       toast,

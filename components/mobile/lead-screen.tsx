@@ -13,7 +13,7 @@ import {
   OfferSection,
   PhotosSection,
 } from "../lead-sections";
-import { DeleteLeadSheet, SmsSheet, StatusSheet, TemplateSheet } from "../sheets";
+import { DeleteLeadSheet, MailSheet, SmsSheet, StatusSheet, TemplateSheet } from "../sheets";
 import { StatusDot } from "../ui";
 import { nextStatus } from "@/lib/derive";
 import { fullDateTime, joinParts, kr, taskSummary } from "@/lib/format";
@@ -34,10 +34,15 @@ export function MobileLeadScreen({ lead }: { lead: Lead }) {
 
   // Tilbage-linket nævner fanen man kom fra, så det er tydeligt hvor man
   // lander — designet viser "‹ Alle".
-  const backLabel = { overblik: "Overblik", opfoelgning: "Opfølgning", alle: "Alle" }[tab];
+  const backLabel = {
+    overblik: "Overblik",
+    opfoelgning: "Opfølgning",
+    beskeder: "Beskeder",
+    alle: "Alle",
+  }[tab];
 
   const [editing, setEditing] = useState(false);
-  const [sheet, setSheet] = useState<"sms" | "tpl" | "status" | "slet" | null>(null);
+  const [sheet, setSheet] = useState<"sms" | "mail" | "tpl" | "status" | "slet" | null>(null);
 
   const next = nextStatus(lead.status);
 
@@ -136,6 +141,7 @@ export function MobileLeadScreen({ lead }: { lead: Lead }) {
       <ActionRow
         lead={lead}
         onSms={() => setSheet("sms")}
+        onMail={() => setSheet("mail")}
         onTemplate={() => setSheet("tpl")}
       />
 
@@ -213,6 +219,9 @@ export function MobileLeadScreen({ lead }: { lead: Lead }) {
 
       {sheet === "sms" ? (
         <SmsSheet lead={lead} onClose={() => setSheet(null)} />
+      ) : null}
+      {sheet === "mail" ? (
+        <MailSheet lead={lead} onClose={() => setSheet(null)} />
       ) : null}
       {sheet === "tpl" ? (
         <TemplateSheet lead={lead} onClose={() => setSheet(null)} />

@@ -5,6 +5,7 @@ import { useLeads } from "./leads-provider";
 import { useAppState } from "./app-state";
 import { fillTemplate } from "./lead-sections";
 import { Button, Chip, Field, Input, Sheet, StatusDot, Textarea } from "./ui";
+import { firstName, taskInSentence } from "@/lib/format";
 import { MANUAL_SOURCES, SMS_TEMPLATES, STATUSES, type Lead, type LeadStatus } from "@/lib/types";
 
 /**
@@ -147,6 +148,89 @@ export function SmsSheet({ lead, onClose }: { lead: Lead; onClose: () => void })
             </div>
           );
         })}
+      </div>
+    </Sheet>
+  );
+}
+
+/* -------------------------------------------------------------------------
+   Skriv mail
+------------------------------------------------------------------------- */
+
+/**
+ * Skriver og sender en mail uden at forlade CRM'et.
+ *
+ * Emne og hilsen er udfyldt på forhånd. Det er ikke pynt: forskellen på en
+ * knap der åbner et tomt felt og en der åbner en halvfærdig mail, er om den
+ * bliver brugt ude på en byggeplads eller gemt til "når jeg kommer hjem".
+ *
+ * Er SMTP ikke sat op, åbner den mailprogrammet med mailto: som før.
+ */
+export function MailSheet({ lead, onClose }: { lead: Lead; onClose: () => void }) {
+  const { sendEmail, logActivity, toast } = useLeads();
+
+  const [subject, setSubject] = useState(
+    `Vedr. ${taskInSentence(lead.description) || "din henvendelse"}`,
+  );
+  const [body, setBody] = useState(
+    `Hej ${firstName(lead.name)}\n\n\n\nMvh Meick\nHolms Maler & Tømrer ApS`,
+  );
+  const [sending, setSending] = useState(false);
+
+  const send = async () => {
+    if (sending || !body.trim()) return;
+
+    setSending(true);
+    const handled = await sendEmail(lead.id, subject, body);
+    setSending(false);
+
+    if (handled) {
+      onClose();
+      return;
+    }
+
+    // SMTP ikke sat op — åbn mailprogrammet som CRM'et gjorde før.
+    window.location.href =
+      `mailto:${lead.email}?subject=${encodeURIComponent(subject)}` +
+      `&body=${encodeURIComponent(body)}`;
+    await logActivity(lead.id, "Mail åbnet");
+    toast("Mailprogrammet er åbnet");
+    onClose();
+  };
+
+  return (
+    <Sheet title="Skriv mail" onClose={onClose}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14, paddingBottom: 8 }}>
+        <p style={{ margin: 0, fontSize: 13, color: "var(--color-text-3)" }}>
+          Til {lead.email}
+        </p>
+
+        <Field label="Emne">
+          <Input
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+            placeholder="Emne"
+          />
+        </Field>
+
+        <Field label="Besked">
+          <Textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            rows={10}
+            placeholder="Skriv din besked"
+          />
+        </Field>
+
+        <Button
+          tone="yellow"
+          height={52}
+          full
+          disabled={sending || !body.trim()}
+          onClick={() => void send()}
+        >
+          {sending ? "Sender…" : "Send mail"}
+        </Button>
       </div>
     </Sheet>
   );

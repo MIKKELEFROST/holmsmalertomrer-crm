@@ -223,6 +223,61 @@ Det er næsten altid den samtale der er i gang.
 Citeret historik skæres fra, så den tiende mail i en tråd ikke indeholder de ni
 foregående. Består mailen udelukkende af citat, vises citatet frem for ingenting.
 
+## Skriv mail fra CRM'et
+
+Knappen **Skriv mail** på leadet sender gennem Holms egen postkasse hos Simply,
+ikke gennem en tredjepart. Kunden ser en helt almindelig mail fra
+`tomrer@holmsmaler.dk`, og svarer hun, lander svaret i den rigtige indbakke og
+kommer ind i CRM'et ved næste synkronisering.
+
+Tre ting sker, og de kan fejle hver for sig:
+
+1. **Mailen sendes** over SMTP. Fejler det, sker der ikke andet — beskeden
+   bliver ikke skrevet i korrespondancen, for en mail der ikke kom af sted må
+   aldrig stå som sendt.
+2. **En kopi lægges i Sendt-mappen** over IMAP, så mailen også findes i Meicks
+   eget mailprogram. Fejler det, siger CRM'et det, men mailen er sendt.
+3. **Beskeden skrives i korrespondancen** med det samme.
+
+CRM'et laver selv mailens Message-ID, og det er nøglen der binder de tre
+sammen. Når synkroniseringen fem minutter senere finder kopien i Sendt-mappen,
+genkender den id'et og springer den over. Uden det ville hver sendt mail stå to
+gange.
+
+### Miljøvariabler
+
+| Variabel | Værdi |
+|---|---|
+| `SMTP_HOST` | `smtp.simply.com` |
+| `SMTP_PORT` | `587` (STARTTLS). `465` virker også og er implicit TLS. |
+| `SMTP_USER` | Kan udelades — falder tilbage på `IMAP_USER` |
+| `SMTP_PASSWORD` | Kan udelades — falder tilbage på `IMAP_PASSWORD` |
+| `MAIL_FROM_NAME` | Afsendernavnet kunden ser. Standard: `Holms Maler & Tømrer` |
+
+> **`SMTP_HOST` har ingen fallback, med vilje.** Hos Simply er IMAP
+> `mail.simply.com` og SMTP `smtp.simply.com` — to forskellige servere. Faldt
+> `SMTP_HOST` tilbage på `IMAP_HOST`, ville afsendelsen ramme den forkerte
+> server og fejle med en forbindelsesfejl, der intet fortæller om hvad der er
+> galt.
+
+Sættes `SMTP_HOST` ikke, åbner knappen mailprogrammet med `mailto:` som CRM'et
+gjorde før. Den opfører sig altså aldrig værre end den gjorde — den bliver bare
+ikke logget.
+
+## Beskeder-siden
+
+Fanen **Beskeder** viser alle samtaler, nyeste først, på tværs af leads. De
+kunder hvor den seneste besked kom fra dem, er markeret med gul kant og
+teksten "Venter på svar" — og det er det tal der står i navigationen.
+
+Tallet er med vilje "hvor mange venter på svar" frem for "hvor mange samtaler".
+Det første kan man gøre noget ved; det andet vokser bare.
+
+Afsluttede og tabte leads er med i listen. De falder af sig selv nedad
+efterhånden som nyere samtaler kommer til, og at skjule dem ville betyde at en
+kunde der skriver igen efter et afsluttet job, forsvinder ud af oversigten —
+præcis den besked man mindst har råd til at overse.
+
 ---
 
 # Fase 2 — SMS (udskudt)
