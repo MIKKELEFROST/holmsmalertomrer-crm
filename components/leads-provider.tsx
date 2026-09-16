@@ -23,6 +23,7 @@ import {
   type NewLeadInput,
   sendSmsToLead as sendSmsAction,
   sendEmailToLead as sendEmailAction,
+  refreshMail as refreshMailAction,
 } from "@/app/actions";
 import type { Lead, LeadActivity, Message } from "@/lib/types";
 
@@ -60,6 +61,10 @@ interface LeadsContextValue {
    * mailprogrammet med mailto: i stedet, som CRM'et gjorde før.
    */
   sendEmail: (leadId: string, subject: string, body: string) => Promise<boolean>;
+  /** Henter nye mails nu i stedet for at vente på cron. */
+  refreshMail: () => Promise<void>;
+  /** Sat mens hentningen kører — driver knappens "Henter…". */
+  refreshing: boolean;
   registerPhoto: (
     leadId: string,
     path: string,
@@ -101,6 +106,7 @@ export function LeadsProvider({
   const [leads, setLeads] = useState(initialLeads);
   const [now, setNow] = useState(() => new Date(serverNow));
   const [savedAt, setSavedAt] = useState<Record<string, string>>({});
+  const [refreshing, setRefreshing] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toastId = useRef(0);
 
@@ -264,6 +270,45 @@ export function LeadsProvider({
     },
     [run, toast],
   );
+
+  const refreshMail = useCallback(async () => {
+    setRefreshing(true);
+    const result = await run(() => refreshMailAction());
+    setRefreshing(false);
+
+    if (!result.ok) {
+      toast(result.error ?? "Kunne ikke hente mails", "error");
+      return;
+    }
+
+    const hentet = result.messages ?? [];
+
+    // Realtime har formentlig allerede lagt dem ind. Derfor flettes de på id
+    // frem for at blive tilføjet blindt — ellers stod hver besked to gange
+    // efter et tryk på knappen.
+    if (hentet.length > 0) {
+      setLeads((current) =>
+        current.map((lead) => {
+          const til = hentet.filter((m) => m.lead_id === lead.id);
+          if (til.length === 0) return lead;
+
+          const existing = lead.messages ?? [];
+          const nye = til.filter((m) => !existing.some((e) => e.id === m.id));
+          if (nye.length === 0) return lead;
+
+          return {
+            ...lead,
+            messages: [...existing, ...nye].sort((a, b) =>
+              a.sent_at.localeCompare(b.sent_at),
+            ),
+          };
+        }),
+      );
+    }
+
+    if (hentet.length === 0) toast("Ingen nye beskeder");
+    else toast(`${hentet.length} ${hentet.length === 1 ? "ny besked" : "nye beskeder"}`);
+  }, [run, toast]);
 
   const sendEmail = useCallback(
     async (leadId: string, subject: string, body: string): Promise<boolean> => {
@@ -487,6 +532,8 @@ export function LeadsProvider({
       logActivity,
       sendSms,
       sendEmail,
+      refreshMail,
+      refreshing,
       registerPhoto,
       deletePhoto,
       toast,
@@ -505,6 +552,8 @@ export function LeadsProvider({
       logActivity,
       sendSms,
       sendEmail,
+      refreshMail,
+      refreshing,
       registerPhoto,
       deletePhoto,
       toast,

@@ -24,6 +24,12 @@ interface AppStateValue {
   tab: MobileTab;
   view: DesktopView;
   selectedLeadId: string | null;
+  /**
+   * Leadet hvis beskedtråd er åben. Egen parameter frem for at genbruge
+   * `lead`, fordi det er to forskellige ting: tråden er samtalen alene, mens
+   * leadet er hele sagen med pris, status og noter.
+   */
+  selectedThreadId: string | null;
   filters: Filters;
   /** Tvunget layout til demo og test: ?layout=mobil|desktop */
   forcedLayout: "mobil" | "desktop" | null;
@@ -32,6 +38,8 @@ interface AppStateValue {
   setView: (view: DesktopView) => void;
   openLead: (leadId: string) => void;
   closeLead: () => void;
+  openThread: (leadId: string) => void;
+  closeThread: () => void;
   setQuery: (query: string) => void;
   toggleZip: (zip: string) => void;
   setStatusFilter: (status: LeadStatus | null) => void;
@@ -73,6 +81,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const tab: MobileTab = isTab(tabParam) ? tabParam : "overblik";
   const view: DesktopView = isView(viewParam) ? viewParam : "pipeline";
   const selectedLeadId = searchParams.get("lead");
+  const selectedThreadId = searchParams.get("traad");
 
   const filters = useMemo<Filters>(
     () => ({
@@ -124,19 +133,30 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       tab,
       view,
       selectedLeadId,
+      selectedThreadId,
       filters,
       forcedLayout,
 
       setTab: (next) =>
-        // Et fanetryk lukker også et åbent lead — bundnavigationen er global.
-        navigate({ tab: next === "overblik" ? null : next, lead: null }, "push"),
+        // Et fanetryk lukker både et åbent lead og en åben tråd —
+        // bundnavigationen er global.
+        navigate(
+          { tab: next === "overblik" ? null : next, lead: null, traad: null },
+          "push",
+        ),
 
       setView: (next) =>
         navigate({ view: next === "pipeline" ? null : next }, "push"),
 
-      openLead: (leadId) => navigate({ lead: leadId }, "push"),
+      // At åbne det ene lukker det andet. Ellers kunne man stå med en tråd
+      // bag et lead og ikke vide hvad tilbage-knappen gjorde.
+      openLead: (leadId) => navigate({ lead: leadId, traad: null }, "push"),
 
       closeLead: () => navigate({ lead: null }, "push"),
+
+      openThread: (leadId) => navigate({ traad: leadId, lead: null }, "push"),
+
+      closeThread: () => navigate({ traad: null }, "push"),
 
       setQuery: (query) => navigate({ q: query || null }, "replace"),
 
@@ -154,7 +174,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       clearFilters: () =>
         navigate({ q: null, zip: null, status: null }, "replace"),
     }),
-    [tab, view, selectedLeadId, filters, forcedLayout, navigate],
+    [tab, view, selectedLeadId, selectedThreadId, filters, forcedLayout, navigate],
   );
 
   return <AppStateContext value={value}>{children}</AppStateContext>;

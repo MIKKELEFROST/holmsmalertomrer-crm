@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useLeads } from "./leads-provider";
+import { useAppState } from "./app-state";
 import {
   Button,
   Chip,
@@ -25,7 +26,6 @@ import {
   TASK_TAGS,
   type DurationUnit,
   type Lead,
-  type Message,
 } from "@/lib/types";
 
 /**
@@ -737,114 +737,74 @@ export function HistorySection({ lead }: { lead: Lead }) {
 }
 
 /* -------------------------------------------------------------------------
-   Korrespondance — mails og SMS'er, samme spor
+   Korrespondance — kun en henvisning, samtalen bor på Beskeder
 ------------------------------------------------------------------------- */
 
 /**
- * Hvem der skrev hvad, hvornår.
+ * Én linje der fører til beskedtråden.
  *
- * Mails og SMS'er står i ét spor frem for hver sin fane. Samtalen med en kunde
- * hopper mellem de to — han skriver en SMS, får et tilbud på mail, svarer med
- * en SMS — og delt op i to lister giver rækkefølgen ingen mening.
- *
- * Ældst øverst, modsat noter og historik. En samtale læses forfra.
+ * Her stod hele samtalen før, boble for boble. Det gjorde lead-siden så lang
+ * at tilbud, noter og historik forsvandt under den — og en samtale er ikke
+ * et felt i en sag, den er sin egen ting. Nu bor den på Beskeder, og leadet
+ * nøjes med at sige at den findes.
  */
-function MessageBubble({ message }: { message: Message }) {
-  const outgoing = message.direction === "ud";
-
-  return (
-    <li
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: outgoing ? "flex-end" : "flex-start",
-        gap: 3,
-      }}
-    >
-      <div
-        style={{
-          maxWidth: "85%",
-          minWidth: 0,
-          background: outgoing ? "var(--color-yellow-soft)" : "var(--color-card)",
-          border: "1px solid var(--color-line)",
-          borderRadius: "var(--radius-card)",
-          padding: "10px 12px",
-        }}
-      >
-        {message.subject && (
-          <p
-            style={{
-              margin: "0 0 4px",
-              fontFamily: "var(--font-display)",
-              fontSize: 13,
-              fontWeight: 700,
-              lineHeight: 1.35,
-            }}
-          >
-            {message.subject}
-          </p>
-        )}
-        <p
-          style={{
-            margin: 0,
-            fontSize: 14,
-            lineHeight: 1.45,
-            // Mails kommer med deres egne linjeskift. Uden den her står hele
-            // brevet som én klump.
-            whiteSpace: "pre-wrap",
-            overflowWrap: "anywhere",
-          }}
-        >
-          {message.body || "(tom besked)"}
-        </p>
-      </div>
-      <p style={{ margin: 0, fontSize: 11.5, color: "var(--color-text-4)" }}>
-        {message.channel === "email" ? "Mail" : "SMS"} ·{" "}
-        {outgoing ? "sendt" : "modtaget"} · {shortDateTime(message.sent_at)}
-      </p>
-    </li>
-  );
-}
-
-export function CorrespondenceSection({ lead }: { lead: Lead }) {
+export function CorrespondenceLink({ lead }: { lead: Lead }) {
+  const { openThread } = useAppState();
   const messages = lead.messages ?? [];
 
-  // Sektionen bliver stående når den er tom, modsat Historik.
-  //
-  // Historik er en kendt sektion man ved findes. Korrespondance fyldes af en
-  // baggrundssynkronisering, og forsvandt den når den var tom, kunne man ikke
-  // se forskel på "der er ikke kommet mails endnu" og "funktionen virker
-  // ikke". Den tvivl er dyrere end en linje tekst på et tomt lead.
-  if (messages.length === 0) {
-    return (
-      <section style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        <SectionLabel>Korrespondance</SectionLabel>
-        <EmptyNote>
-          {lead.email
-            ? `Ingen mails endnu — mails til og fra ${lead.email} lander her af sig selv.`
-            : "Leadet har ingen mailadresse, så mails kan ikke kobles til det. Tilføj en under Kontakt."}
-        </EmptyNote>
-      </section>
-    );
-  }
+  if (messages.length === 0) return null;
+
+  const latest = messages.reduce((a, b) => (b.sent_at > a.sent_at ? b : a));
+  const venter = latest.direction === "ind";
 
   return (
     <section style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       <SectionLabel>Korrespondance</SectionLabel>
-      <ol
+      <button
+        type="button"
+        onClick={() => openThread(lead.id)}
         style={{
-          listStyle: "none",
-          margin: 0,
-          padding: 0,
+          width: "100%",
+          textAlign: "left",
           display: "flex",
-          flexDirection: "column",
+          alignItems: "center",
           gap: 12,
+          minHeight: 56,
+          padding: "12px 14px",
+          background: "var(--color-card)",
+          border: "1px solid var(--color-line)",
+          borderLeft: `3px solid ${
+            venter ? "var(--color-yellow)" : "var(--color-line)"
+          }`,
+          borderRadius: "var(--radius-card)",
         }}
       >
-        {messages.map((message) => (
-          <MessageBubble key={message.id} message={message} />
-        ))}
-      </ol>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <p
+            style={{
+              margin: 0,
+              fontFamily: "var(--font-display)",
+              fontSize: 14.5,
+              fontWeight: 700,
+            }}
+          >
+            {messages.length} {messages.length === 1 ? "besked" : "beskeder"}
+            {venter ? " · venter på svar" : ""}
+          </p>
+          <p
+            style={{
+              margin: "2px 0 0",
+              fontSize: 12.5,
+              color: "var(--color-text-4)",
+            }}
+          >
+            Seneste {shortDateTime(latest.sent_at)}
+          </p>
+        </div>
+        <span aria-hidden style={{ color: "var(--color-text-4)", fontSize: 20 }}>
+          ›
+        </span>
+      </button>
     </section>
   );
 }

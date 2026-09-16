@@ -19,6 +19,7 @@ import {
 import { kr, weekdayDate } from "@/lib/format";
 import { STATUS_COLORS, type Lead } from "@/lib/types";
 import { ConversationList } from "../conversations";
+import { ThreadView } from "../thread";
 import { awaitingReplyCount } from "@/lib/derive";
 
 /**
@@ -32,12 +33,16 @@ const BOTTOM_NAV_HEIGHT = 58;
 
 export function MobileApp() {
   const { leads } = useLeads();
-  const { tab, selectedLeadId } = useAppState();
+  const { tab, selectedLeadId, selectedThreadId } = useAppState();
   const [statusSheetLead, setStatusSheetLead] = useState<Lead | null>(null);
   const [newLeadOpen, setNewLeadOpen] = useState(false);
 
   const selectedLead = selectedLeadId
     ? leads.find((l) => l.id === selectedLeadId)
+    : undefined;
+
+  const selectedThread = selectedThreadId
+    ? leads.find((l) => l.id === selectedThreadId)
     : undefined;
 
   return (
@@ -51,7 +56,13 @@ export function MobileApp() {
         ["--toast-bottom" as string]: "86px",
       }}
     >
-      {selectedLead ? (
+      {selectedThread ? (
+        <ThreadView
+          key={selectedThread.id}
+          lead={selectedThread}
+          bottomPadding={BOTTOM_NAV_HEIGHT + 32}
+        />
+      ) : selectedLead ? (
         <MobileLeadScreen key={selectedLead.id} lead={selectedLead} />
       ) : (
         <>
