@@ -1,26 +1,115 @@
-# Automatisk lead-modtagelse
+# Lead-modtagelse
 
-> **Status: sat på pause.** Endpointet i CRM'et er bygget og klar. Make-siden
-> er undersøgt og alle nødvendige ID'er er fundet (se nedenfor), men
-> scenarierne er ikke oprettet endnu. Dokumentet her indeholder alt hvad der
-> skal bruges for at gøre det færdigt.
-
-Der er to veje ind i CRM'et: Meta Lead Ads (Facebook og Instagram) og
-hjemmesidens kontaktformular. Begge går gennem Make og rammer det samme
-endpoint.
+> **Status (verificeret i Make 1. november 2026):** Meta-leads kører automatisk
+> ind i CRM'et via Make og har gjort det siden 14. september 2026.
+> Hjemmesidens kontaktformular går **ikke** i CRM'et — den sender en mail.
+> Endpointet `/api/leads/inbound` er bygget, men intet bruger det i dag.
 
 ```
-Meta Lead Ads ─┐
-               ├─→ Make ─→ POST /api/leads/inbound ─→ CRM
-WordPress-form ┘
+Meta Lead Ads (FB/IG) ─→ Make ─→ Supabase RPC ingest_meta_lead ─→ CRM
+                                    └─→ mail "NYT LEAD" til tomrer@holmsmaler.dk
+
+holmsmaler.dk-formular ─→ api/lead.js (holmsmaler-dk) ─→ mail via Resend
 ```
 
-Make ligger i midten frem for at pege Meta direkte på CRM'et, fordi Make giver
-kø, genforsøg og et sted at se hvad der faktisk kom ind, når et lead mangler.
+Make ligger i midten, fordi Make giver kø, genforsøg og et sted at se, hvad der
+faktisk kom ind, når et lead mangler.
 
-## Endpointet
+## Rute 1 — Meta Lead Ads (kører)
 
-Bygget og klar. Se `app/api/leads/inbound/route.ts`.
+### ID'er
+
+| Hvad | Værdi |
+|---|---|
+| Make-scenarie | `Holms Maler \| Meta Lead Ads → Supabase CRM` (id `9807778`) |
+| Make-webhook | `Holms Maler – Meta Lead Ads` (id `4372751`) |
+| Backfill-scenarie | `Holms Maler \| Backfill Meta leads → Supabase (manuel)` (id `9807783`) |
+| Facebook-side | Holms Maler & Tømrer Entreprise ApS — `1143807065478844` |
+| Formular (aktiv) | `08.05.26-copy` → `1493450252272167` |
+| Formular (ældre) | `08.05.26` → `975087995453059` |
+| Make-forbindelse, Facebook | `frostmikkel99` (id `14589446`) |
+| Make-forbindelse, Gmail | Mikkels Gmail (id `14594363`) |
+| Make team / org | `1576827` / `3412853` |
+
+### Scenariet, modul for modul
+
+1. **Facebook Lead Ads → Watch leads (multiple forms)**
+   (`facebook-lead-ads:NewLeadMultiple`). Instant trigger, bundet til siden
+   `1143807065478844` **uden formularfilter**. Alle formularer på siden fanges,
+   også nye — de nye annoncer fra 1. november bruger samme formular som før.
+2. **Facebook Lead Ads → Get form** — henter formularens navn.
+3. **HTTP GET** `api.dataforsyningen.dk/postnumre?nr=<postnummer>` — slår
+   byen op ud fra postnummeret.
+4. **HTTP POST** til Supabase-RPC'en `ingest_meta_lead`
+   (`https://wwptdpflareijqqqhvml.supabase.co/rest/v1/rpc/ingest_meta_lead`,
+   form-urlencoded). Sender `leadgen_id`, `created_time`, `platform`,
+   `campaign_name`, `ad_name`, `form_id`, `form_name`, `full_name`, `email`,
+   `phone`, `zip`, `city`, `description` og en delt hemmelighed `p_secret`.
+   Hemmeligheden står kun i Make-scenariet — skriv den ikke ind her. RPC'en
+   opretter leadet (+ `lead_activity`) og svarer `inserted: true`, eller
+   `false` hvis `meta_id` allerede findes.
+5. **Gmail → Send mail** "NYT LEAD" til `tomrer@holmsmaler.dk`, cc
+   `mikkel@onlinemarketing.nu`, med link til CRM'et. Kører kun når
+   `inserted = true`, så dubletter ikke giver mail. Fejl i mail-modulet ignoreres.
+
+**Formularfelterne er hårdkodet i modul 3 og 4:** `full_name`, `email`,
+`phone_number`, `postnummer` og `hvad_kan_vi_hjælpe_med?_(beskriv_din_opgave)`.
+Laves der en ny formular med andre spørgsmål, kommer leadet stadig ind, men
+uden postnummer/by og opgavebeskrivelse. Kopiér den eksisterende formular, når
+der skal laves en ny.
+
+**`ingest_meta_lead` findes kun i databasen** — den ligger ikke i
+`supabase/migrations/`. Genopbygges databasen fra migrationerne, skal funktionen
+oprettes igen, ellers fejler modul 4.
+
+### Kendt fejl: Facebook-forbindelsen udløber
+
+Er sket 8. og 18. oktober 2026. Modul 1 fejler med `InvalidAccessTokenError …
+The session has been invalidated because the user changed their password or
+Facebook has changed the session for security reasons`. Make deaktiverer
+scenariet, og nye leads lægges i webhookens kø. De er ikke tabt, men der
+kommer ingen leads i CRM'et og ingen mails, før det er rettet.
+
+Sådan rettes det:
+
+1. **Genautorisér den eksisterende forbindelse** `frostmikkel99` (id
+   `14589446`) i Make → Connections → Reauthorize. Opret ikke en ny
+   forbindelse: webhooken peger på id `14589446` og kan ikke flyttes.
+2. Aktivér scenariet igen. Leads i køen køres automatisk — med mail til Meick
+   som normalt.
+3. Mangler der stadig leads, så kør backfill-scenariet manuelt. Det henter de
+   10 seneste leads fra formular `1493450252272167` og springer dubletter over.
+   **Backfill sender ingen mail** — giv Meick besked selv. Det er sandsynligvis
+   derfor, leadet fra 8. oktober aldrig gav en "NYT LEAD"-mail: backfill kørte
+   kl. 07:04–07:06 den 9. oktober, og da køen blev kørt kl. 07:07, stoppede
+   kørslen før mail-modulet (4 operationer = dublet).
+
+Samme Facebook-forbindelse bruges også af Carelax-scenarierne. Den fulde
+beskrivelse af forbindelserne og nedbruddet 8.–9. oktober står i
+`routines/make-forbindelser.md` i `fbads`-repoet (PR #7, endnu ikke flettet).
+
+### Kontrol
+
+Antallet af leads i Meta Ads (feltet `lead` pr. dag) skal stemme med antallet
+af "NYT LEAD"-mails og med succesfulde kørsler i Make. En kørsel med 5
+operationer er et nyt lead med mail; 4 operationer er en dublet. Rutinen i
+`fbads`-repoet (`routines/holmsmaler-leads.md`) laver denne kontrol.
+
+## Rute 2 — Hjemmesiden (går ikke i CRM'et)
+
+Formularen på holmsmaler.dk poster til `api/lead.js` i `holmsmaler-dk`-repoet,
+som sender en mail via Resend til `LEAD_TO_EMAIL` med emnet
+"Nyt lead fra holmsmaler.dk (tømrer) – <navn>". Leadet skal tastes ind i
+CRM'et i hånden.
+
+Skal hjemmeside-leads automatisk i CRM'et, er den korteste vej at lade
+`api/lead.js` også poste til `/api/leads/inbound` (se nedenfor) med
+`"source": "Hjemmeside"` og uden `meta_id`. Uden `meta_id` er der ingen
+dubletkontrol — med vilje: to henvendelser fra samme person kan være to opgaver.
+
+## Endpointet `/api/leads/inbound` (bygget, ikke i brug)
+
+Se `app/api/leads/inbound/route.ts`.
 
 ```
 POST /api/leads/inbound
@@ -45,98 +134,11 @@ Svar: `201` med `{ok: true, id}` ved nyt lead, `200` med
 `{ok: true, duplicate: true}` hvis `meta_id` fandtes i forvejen, `401` ved
 forkert hemmelighed.
 
-**Hemmeligheden** genereres med `openssl rand -hex 32` og skal stå både i
-Vercels miljøvariabler og i Make-scenariernes Authorization-header. Generér en
-frisk en når I deployer — brug ikke en der har været forbi en chat eller en log.
+**Hemmeligheden** genereres med `openssl rand -hex 32` og skal stå i Vercels
+miljøvariabler og hos den, der kalder endpointet. Brug ikke en, der har været
+forbi en chat eller en log.
 
-## Rute 1 — Meta Lead Ads
-
-### Fundne ID'er
-
-| Hvad | Værdi |
-|---|---|
-| Facebook-side | Holms Maler & Tømrer Entreprise ApS (Hvidovre) |
-| Page ID | `1143807065478844` |
-| Formular (aktiv) | `08.05.26-copy` → `1493450252272167` |
-| Formular (ældre) | `08.05.26` → `975087995453059` |
-| Make-forbindelse | `frostmikkel99` (id `14589446`) — har adgang til siden |
-| Make team / org | `1576827` / `3412853` |
-
-Formularens felter, som de kommer fra Meta:
-`full_name`, `email`, `phone_number`, `postnummer`,
-`hvad_kan_vi_hjælpe_med?_(beskriv_din_opgave)`.
-
-Bemærk at Meta leverer hvert svar som et **array** — derfor `first(...)` i
-mapningen nedenfor. Telefonnumre kommer som `p:+45…` og postnummeret som ren
-tekst; endpointet renser begge dele, så Make behøver ikke.
-
-### Scenariet
-
-Tre moduler. Mønsteret er lånt fra det eksisterende
-`Carelax | Meta Lead Ads → Pipedrive`, som kører samme opsætning.
-
-1. **Facebook Lead Ads → Watch Leads** (`facebook-lead-ads:NewEvent`, v1)
-   Instant trigger. Hooket bindes til page `1143807065478844`. Lad
-   formularfeltet stå tomt, så alle formularer på siden fanges — ellers
-   forsvinder leads i stilhed den dag der laves en ny formular.
-
-2. **Facebook Lead Ads → Get Leadgen** (`facebook-lead-ads:GetLeadgen`, v1)
-   `mapper: { id: "{{1.leadgenId}}" }`,
-   `parameters: { account: 14589446, pageId: "1143807065478844", formId: "1493450252272167" }`.
-   Trigger'en giver kun et leadgen-id; det er her selve svarene hentes.
-
-3. **HTTP → Make a request** (`http:ActionSendData`, v3)
-   `POST` til `<CRM-URL>/api/leads/inbound`, `bodyType: "raw"`,
-   header `Authorization: Bearer <hemmelighed>` og
-   `Content-Type: application/json`. Body:
-
-   ```json
-   {
-     "meta_id": "l:{{1.leadgenId}}",
-     "created_time": "{{1.dateCreated}}",
-     "full_name": "{{first(2.data.full_name)}}",
-     "email": "{{first(2.data.email)}}",
-     "phone_number": "{{first(2.data.phone_number)}}",
-     "postnummer": "{{first(2.data.postnummer)}}",
-     "description": "{{first(get(2.data; \"hvad_kan_vi_hjælpe_med?_(beskriv_din_opgave)\"))}}",
-     "source": "Meta Lead Ads",
-     "campaign_name": "{{2.campaignName}}",
-     "ad_name": "{{2.adName}}",
-     "form_name": "{{2.formName}}"
-   }
-   ```
-
-   `meta_id` skal have `l:`-prefikset, så det matcher de 19 leads der allerede
-   er importeret fra CSV-eksporten — ellers bliver de samme leads oprettet igen.
-
-   **Om platformen:** CSV-eksporten har en `platform`-kolonne med `fb` og `ig`,
-   men det er ikke bekræftet at webhooken leverer den. Derfor sendes `source`
-   som "Meta Lead Ads" her. Kør ét rigtigt lead igennem, kig på hvad modul 2
-   faktisk returnerer, og skift til `"platform": "{{2.platform}}"` hvis feltet
-   er der — endpointet oversætter selv `fb` til Facebook og `ig` til Instagram.
-   Indtil da fortæller annoncenavnet hvor leadet kom fra.
-
-## Rute 2 — WordPress-formularen
-
-1. Opret et **Custom webhook** i Make. Make giver en URL i stil med
-   `https://hook.eu2.make.com/<id>`.
-2. Kobl formularen på den URL. Alle tre gængse plugins kan det:
-   - **WPForms** — Settings → Webhooks (kræver Pro)
-   - **Gravity Forms** — Webhooks add-on
-   - **Contact Form 7** — kræver et tillæg, fx CF7 to Webhook
-   Send felterne som JSON med navnene `name`, `phone`, `email`, `zip`,
-   `description`. Andre navne virker også, så længe de matcher tabellen øverst.
-3. Tilføj et **HTTP → Make a request**-modul magen til punkt 3 ovenfor, men med
-   `"source": "Hjemmeside"` og uden `meta_id`.
-
-Uden `meta_id` er der ingen dubletkontrol. Sender kunden formularen to gange,
-kommer der to leads. Det er med vilje — to henvendelser fra samme person kan
-være to forskellige opgaver, og det er lettere at slette et lead end at opdage
-et der aldrig kom.
-
-## Test
-
-Endpointet kan afprøves uden Make:
+Endpointet kan afprøves sådan:
 
 ```bash
 curl -X POST https://<CRM-URL>/api/leads/inbound \
@@ -147,11 +149,9 @@ curl -X POST https://<CRM-URL>/api/leads/inbound \
 ```
 
 Leadet skal dukke op i CRM'et under **Nye** med by "Glostrup" udfyldt
-automatisk, og en historikpost der siger hvor det kom fra.
-
-## Direkte Meta-webhook uden Make
+automatisk, og en historikpost der siger, hvor det kom fra.
 
 Endpointet svarer også på Metas verifikations-`GET` (`hub.challenge`), hvis
-`META_VERIFY_TOKEN` er sat. Selve leadgen-hentningen fra Graph API er ikke
-bygget — den kræver en page access token og en Meta-app i review. Make er
-hurtigere at komme i luften med, og giver kø og genforsøg oveni.
+`META_VERIFY_TOKEN` er sat, men selve hentningen af leads fra Graph API er ikke
+bygget. Meta-leads går i dag uden om endpointet, direkte fra Make til
+Supabase-RPC'en.
